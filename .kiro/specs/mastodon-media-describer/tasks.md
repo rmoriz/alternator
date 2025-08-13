@@ -35,7 +35,7 @@
   - Commit changes: "Add OpenRouter client with cost controls and API validation"
   - _Requirements: 1.1, 1.4, 2.4, 10.1, 10.2, 10.4, 10.5_
 
-- [ ] 5. Build media processing and transformation system
+- [x] 5. Build media processing and transformation system
   - Create MediaProcessor with support for image type filtering (JPEG, PNG, GIF, WebP)
   - Implement ImageTransformer for downsizing and format optimization
   - Add media attachment description checking logic
@@ -44,7 +44,7 @@
   - Commit changes: "Implement media processing and image transformation system"
   - _Requirements: 4.1, 4.4, 4.5, 4.6_
 
-- [ ] 6. Implement language detection and prompt management
+- [x] 6. Implement language detection and prompt management
   - Create LanguageDetector with language identification capabilities
   - Build prompt template system with language-specific templates
   - Implement get_prompt_template() method for localized AI prompts
@@ -52,7 +52,7 @@
   - Commit changes: "Add language detection and localized prompt management"
   - _Requirements: 1.6, 1.7_
 
-- [ ] 7. Create Mastodon WebSocket streaming client
+- [-] 7. Create Mastodon WebSocket streaming client
   - Implement MastodonClient with WebSocket connection management
   - Add toot event parsing and filtering for authenticated user's posts only
   - Implement automatic reconnection with exponential backoff strategy

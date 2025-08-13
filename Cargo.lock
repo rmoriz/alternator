@@ -42,6 +42,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "futures-util",
  "image",
  "reqwest",
  "serde",
