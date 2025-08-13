@@ -1,0 +1,45 @@
+# Optimized multi-arch Dockerfile that uses pre-built binaries
+# This avoids rebuilding Rust code and speeds up Docker image creation
+FROM debian:bookworm-slim
+
+# Build argument to specify the target architecture
+ARG TARGETARCH
+ARG TARGETOS
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -m -u 1001 alternator
+
+# Create directory for configuration
+RUN mkdir -p /app/config && chown -R alternator:alternator /app
+
+# Copy the appropriate binary based on target architecture
+# These binaries should be pre-built and available in the build context
+COPY --chown=alternator:alternator binaries/${TARGETOS}-${TARGETARCH}/alternator /usr/local/bin/alternator
+RUN chmod +x /usr/local/bin/alternator
+
+# Switch to non-root user
+USER alternator
+
+# Set working directory
+WORKDIR /app
+
+# Create volume for configuration
+VOLUME ["/app/config"]
+
+# Environment variables for container deployment
+ENV ALTERNATOR_CONFIG_PATH=/app/config/alternator.toml
+ENV RUST_LOG=info
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD pgrep alternator || exit 1
+
+# Run the application
+ENTRYPOINT ["alternator"]
+CMD ["--config", "/app/config/alternator.toml"]

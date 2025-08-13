@@ -148,13 +148,9 @@ Popular model options for the `model` configuration:
 - `mistralai/mistral-small-3.2-24b-instruct:free` - Excellent free vision model with strong performance
 - `qwen/qwen2.5-vl-32b-instruct:free` - Powerful free vision model with large context
 - `meta-llama/llama-3.2-11b-vision-instruct:free` - Meta's free vision model
-- `tngtech/deepseek-r1t2-chimera:free` - Advanced reasoning model with vision
 
 ### Paid Models (Higher Quality)
-- `anthropic/claude-3-haiku` - Fast, cost-effective (~$0.002 per image)
-- `anthropic/claude-3-sonnet` - Balanced performance/cost (~$0.01 per image)  
-- `openai/gpt-4o-mini` - OpenAI's efficient model (~$0.002 per image)
-- `google/gemini-pro-vision` - Google's vision model
+- `google/gemini-2.5-flash-lite` - Google's latest efficient vision model
 
 See [OpenRouter Models](https://openrouter.ai/models) for the complete list.
 
