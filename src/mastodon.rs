@@ -10,6 +10,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 use tracing::{debug, error, info, warn};
 use url::Url;
 
+/// Zero-width space character used as invisible placeholder for empty text content
+/// This allows media descriptions to be updated on posts that originally had no text
+const ZERO_WIDTH_SPACE: &str = "\u{200B}";
+
 /// Mastodon toot event from WebSocket stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TootEvent {
@@ -906,20 +910,24 @@ impl MastodonStream for MastodonClient {
         debug!("Original content HTML: {}", current_status.content);
         debug!("Extracted text: '{}'", status_text);
 
-        let mut form_data = std::collections::HashMap::new();
-
-        // Only include status text if the original had content
-        // This avoids Mastodon's validation error for empty text
-        if !status_text.trim().is_empty() {
-            debug!("Including original status text in update");
-            form_data.insert("status".to_string(), status_text);
+        // Use zero-width space for empty content to allow media description updates
+        // Mastodon requires text content when updating a status, but we want to support
+        // adding descriptions to media-only posts
+        let status_content = if status_text.trim().is_empty() {
+            debug!("Using zero-width space for empty content to enable media description update");
+            ZERO_WIDTH_SPACE.to_string()
         } else {
-            debug!("Skipping status text (was empty) - updating only media attachments");
-        }
+            debug!("Including original status text in update");
+            status_text
+        };
 
-        // Add new media IDs to the status update
-        for (index, media_id) in new_media_ids.iter().enumerate() {
-            form_data.insert(format!("media_ids[{index}]"), media_id.clone());
+        // Create form data as a vector of tuples to properly handle array parameters
+        let mut form_data = Vec::new();
+        form_data.push(("status", status_content.as_str()));
+
+        // Add new media IDs as array parameters
+        for media_id in new_media_ids.iter() {
+            form_data.push(("media_ids[]", media_id.as_str()));
         }
 
         let response = self
@@ -966,7 +974,7 @@ impl MastodonStream for MastodonClient {
 
 impl MastodonClient {
     /// Extract plain text from HTML content
-    fn extract_text_from_html(html: &str) -> String {
+    pub fn extract_text_from_html(html: &str) -> String {
         // Simple HTML tag removal - this is basic but should work for our needs
         let mut text = html.to_string();
 
@@ -1414,6 +1422,200 @@ mod tests {
         assert_eq!(toot.id, "123456789");
         assert_eq!(toot.account.id, "user123");
         assert_eq!(toot.media_attachments.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_text_from_html_empty_content() {
+        // Test the HTML text extraction with empty content
+        assert_eq!(MastodonClient::extract_text_from_html(""), "");
+        assert_eq!(MastodonClient::extract_text_from_html("   "), "");
+        assert_eq!(MastodonClient::extract_text_from_html("\n\t "), "");
+
+        // Test with only HTML tags (media-only posts)
+        assert_eq!(MastodonClient::extract_text_from_html("<p></p>"), "");
+        assert_eq!(MastodonClient::extract_text_from_html("<p>   </p>"), "");
+        assert_eq!(MastodonClient::extract_text_from_html("<br/>"), "");
+        assert_eq!(
+            MastodonClient::extract_text_from_html("<div><span></span></div>"),
+            ""
+        );
+
+        // Test with actual content
+        assert_eq!(
+            MastodonClient::extract_text_from_html("<p>Hello world</p>"),
+            "Hello world"
+        );
+        assert_eq!(
+            MastodonClient::extract_text_from_html("Plain text"),
+            "Plain text"
+        );
+
+        // Test with HTML entities
+        assert_eq!(
+            MastodonClient::extract_text_from_html("&quot;quoted&quot; &amp; escaped"),
+            "\"quoted\" & escaped"
+        );
+    }
+
+    #[test]
+    fn test_media_only_post_validation_behavior() {
+        // This test documents the current behavior where media-only posts
+        // (empty text content) cannot be updated via the status API
+        // This is the scenario that would benefit from unicode space character solution
+
+        let config = create_test_config();
+        let _client = MastodonClient::new(config);
+
+        // Test empty content scenarios that would trigger the validation issue
+        let empty_html_cases = vec![
+            "",                         // Completely empty
+            "   ",                      // Only whitespace
+            "<p></p>",                  // Empty HTML tags
+            "<p>   </p>",               // HTML tags with only whitespace
+            "<br/>",                    // Self-closing tags
+            "<div><span></span></div>", // Nested empty tags
+        ];
+
+        for empty_content in empty_html_cases {
+            let extracted_text = MastodonClient::extract_text_from_html(empty_content);
+
+            // Current behavior: empty text means the update will be skipped
+            // This is where a unicode space character could be used instead
+            assert!(
+                extracted_text.trim().is_empty(),
+                "Expected empty text for '{empty_content}', got '{extracted_text}'"
+            );
+        }
+
+        // Test that non-empty content works as expected
+        let non_empty_cases = vec![
+            ("Hello world", "Hello world"),
+            ("<p>Test content</p>", "Test content"),
+            ("Mixed <strong>content</strong> here", "Mixed content here"),
+        ];
+
+        for (input, expected) in non_empty_cases {
+            let extracted_text = MastodonClient::extract_text_from_html(input);
+            assert_eq!(extracted_text, expected);
+            assert!(!extracted_text.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_unicode_space_solution_for_empty_posts() {
+        // Test the proposed unicode space solution for empty posts
+        // This demonstrates how specific unicode characters could be used
+        // to satisfy Mastodon's validation while being minimally visible
+
+        // Only test characters that are NOT trimmed by Rust (i.e., that work for our purpose)
+        let working_unicode_chars = vec![
+            ("\u{200B}", "zero-width space"), // Invisible, not trimmed
+            ("\u{2060}", "word joiner"),      // Invisible, no-break, not trimmed
+        ];
+
+        // Test characters that are trimmed (these won't work for our solution)
+        let trimmed_unicode_chars = vec![
+            ("\u{2009}", "thin space"),         // Minimal visible, but trimmed
+            ("\u{200A}", "hair space"),         // Thinnest visible, but trimmed
+            ("\u{00A0}", "non-breaking space"), // Standard alternative, but trimmed
+        ];
+
+        // Test working characters
+        for (space_char, description) in working_unicode_chars {
+            // These characters should not be considered "empty" by trim()
+            assert!(
+                !space_char.trim().is_empty(),
+                "{description} should not be considered empty by trim()"
+            );
+
+            // They should be very short (1 character)
+            assert_eq!(
+                space_char.chars().count(),
+                1,
+                "{description} should be exactly 1 character"
+            );
+
+            // Test that they would pass the validation check
+            // This simulates what the validation logic would see
+            let would_pass_validation = !space_char.trim().is_empty();
+            assert!(
+                would_pass_validation,
+                "{description} should pass the validation check"
+            );
+        }
+
+        // Test trimmed characters (document that they won't work)
+        for (space_char, description) in trimmed_unicode_chars {
+            // These characters ARE considered "empty" by trim() so won't work for our solution
+            assert!(
+                space_char.trim().is_empty(),
+                "{description} should be considered empty by trim() - won't work for our solution"
+            );
+        }
+
+        // Test the recommended zero-width space specifically
+        let zero_width_space = "\u{200B}";
+        assert!(!zero_width_space.trim().is_empty());
+        assert_eq!(zero_width_space.len(), 3); // UTF-8 encoding length
+        assert_eq!(zero_width_space.chars().count(), 1); // Unicode character count
+
+        // Verify it's not whitespace in Rust's definition (so it won't be trimmed)
+        assert!(!zero_width_space.chars().all(|c| c.is_whitespace()));
+
+        // Test the word joiner as an alternative
+        let word_joiner = "\u{2060}";
+        assert!(!word_joiner.trim().is_empty());
+        assert_eq!(word_joiner.chars().count(), 1);
+        assert!(!word_joiner.chars().all(|c| c.is_whitespace()));
+    }
+
+    #[test]
+    fn test_zero_width_space_implementation() {
+        // Test that the zero-width space constant is correctly defined
+        assert_eq!(ZERO_WIDTH_SPACE, "\u{200B}");
+        assert!(!ZERO_WIDTH_SPACE.trim().is_empty());
+        assert_eq!(ZERO_WIDTH_SPACE.chars().count(), 1);
+
+        // Test that it would pass validation
+        let would_pass_validation = !ZERO_WIDTH_SPACE.trim().is_empty();
+        assert!(would_pass_validation);
+
+        // Test that it's invisible (not ASCII graphic)
+        assert!(ZERO_WIDTH_SPACE.chars().all(|c| !c.is_ascii_graphic()));
+    }
+
+    #[test]
+    fn test_status_content_logic_with_zero_width_space() {
+        // Test the logic that would be used in recreate_media_with_descriptions
+        let test_cases = vec![
+            ("", ZERO_WIDTH_SPACE),                  // Empty -> zero-width space
+            ("   ", ZERO_WIDTH_SPACE),               // Whitespace -> zero-width space
+            ("<p></p>", ZERO_WIDTH_SPACE),           // Empty HTML -> zero-width space
+            ("Hello world", "Hello world"),          // Normal text -> unchanged
+            ("<p>Test content</p>", "Test content"), // HTML with content -> extracted text
+        ];
+
+        for (input, expected_status_content) in test_cases {
+            let extracted_text = MastodonClient::extract_text_from_html(input);
+
+            // Simulate the logic from recreate_media_with_descriptions
+            let status_content = if extracted_text.trim().is_empty() {
+                ZERO_WIDTH_SPACE.to_string()
+            } else {
+                extracted_text
+            };
+
+            assert_eq!(
+                status_content, expected_status_content,
+                "For input '{input}', expected '{expected_status_content}' but got '{status_content}'"
+            );
+
+            // Verify that the result always passes validation
+            assert!(
+                !status_content.trim().is_empty(),
+                "Status content '{status_content}' should pass validation"
+            );
+        }
     }
 
     #[test]

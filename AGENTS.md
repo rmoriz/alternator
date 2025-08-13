@@ -29,5 +29,4 @@
 - **CRITICAL**: Every change MUST be committed to git with a descriptive commit message
 - **CRITICAL**: Every change MUST be pushed to GitHub after committing
 - Do NOT add Co-Authored-By: Claude <noreply@anthropic.com> to commit messages
-- Release notes should be added to git and pushed
 - Commit changes with useful description explaining why things have changed

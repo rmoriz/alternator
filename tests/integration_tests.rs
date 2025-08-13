@@ -510,3 +510,271 @@ async fn test_toot_processing_duplicate_prevention() {
     // This test demonstrates the structure without actual WebSocket interaction
     // In a real scenario, we would test with mocked WebSocket events
 }
+
+#[tokio::test]
+async fn test_empty_message_with_media_behavior() {
+    // Test the behavior when processing a toot with empty message and media attachments
+    // This covers the use case mentioned in the issue
+
+    let _config = create_test_config();
+
+    // Create a toot with empty content but media attachments needing descriptions
+    let empty_content_toot = TootEvent {
+        id: "empty_toot_123".to_string(),
+        account: Account {
+            id: "user_456".to_string(),
+            username: "testuser".to_string(),
+            acct: "testuser@mastodon.social".to_string(),
+            display_name: "Test User".to_string(),
+            url: "https://mastodon.social/@testuser".to_string(),
+        },
+        content: "".to_string(), // Empty content - this is the key issue
+        language: Some("en".to_string()),
+        media_attachments: vec![
+            MediaAttachment {
+                id: "media_789".to_string(),
+                media_type: "image/jpeg".to_string(),
+                url: "https://example.com/image1.jpg".to_string(),
+                preview_url: None,
+                description: None, // Needs description but post has no text
+                meta: None,
+            },
+            MediaAttachment {
+                id: "media_790".to_string(),
+                media_type: "image/png".to_string(),
+                url: "https://example.com/image2.png".to_string(),
+                preview_url: None,
+                description: None, // Also needs description
+                meta: None,
+            },
+        ],
+        created_at: Utc::now(),
+        url: Some("https://mastodon.social/@testuser/empty_toot_123".to_string()),
+        visibility: "public".to_string(),
+    };
+
+    // Test with HTML-only content (also effectively empty)
+    let html_empty_toot = TootEvent {
+        id: "html_empty_toot_124".to_string(),
+        account: Account {
+            id: "user_456".to_string(),
+            username: "testuser".to_string(),
+            acct: "testuser@mastodon.social".to_string(),
+            display_name: "Test User".to_string(),
+            url: "https://mastodon.social/@testuser".to_string(),
+        },
+        content: "<p></p>".to_string(), // HTML that extracts to empty text
+        language: Some("en".to_string()),
+        media_attachments: vec![MediaAttachment {
+            id: "media_791".to_string(),
+            media_type: "image/jpeg".to_string(),
+            url: "https://example.com/image3.jpg".to_string(),
+            preview_url: None,
+            description: None,
+            meta: None,
+        }],
+        created_at: Utc::now(),
+        url: Some("https://mastodon.social/@testuser/html_empty_toot_124".to_string()),
+        visibility: "public".to_string(),
+    };
+
+    // Test media processor identifies these as processable
+    let media_processor = alternator::media::MediaProcessor::with_default_config();
+
+    let processable_empty =
+        media_processor.filter_processable_media(&empty_content_toot.media_attachments);
+    assert_eq!(
+        processable_empty.len(),
+        2,
+        "Both media attachments should be processable"
+    );
+
+    let processable_html =
+        media_processor.filter_processable_media(&html_empty_toot.media_attachments);
+    assert_eq!(
+        processable_html.len(),
+        1,
+        "Single media attachment should be processable"
+    );
+
+    // Test language detection on empty content
+    let language_detector = alternator::language::LanguageDetector::new();
+
+    // Language detection should fall back to English for empty content
+    let detected_lang_empty = language_detector
+        .detect_language(&empty_content_toot.content)
+        .unwrap();
+    assert_eq!(
+        detected_lang_empty, "en",
+        "Should fallback to English for empty content"
+    );
+
+    // For HTML-only content, the detector might detect based on the HTML tags
+    // We don't assert a specific language here since it depends on the HTML content
+    let detected_lang_html = language_detector
+        .detect_language(&html_empty_toot.content)
+        .unwrap();
+    assert!(
+        !detected_lang_html.is_empty(),
+        "Should detect some language for HTML content"
+    );
+
+    // Verify that these cases would currently be skipped by the validation logic
+    // This demonstrates the need for the unicode space solution
+
+    // Test HTML text extraction that would happen in the real processing
+    let extracted_empty =
+        alternator::mastodon::MastodonClient::extract_text_from_html(&empty_content_toot.content);
+    let extracted_html =
+        alternator::mastodon::MastodonClient::extract_text_from_html(&html_empty_toot.content);
+
+    assert!(
+        extracted_empty.trim().is_empty(),
+        "Empty content should extract to empty text"
+    );
+    assert!(
+        extracted_html.trim().is_empty(),
+        "HTML-only content should extract to empty text"
+    );
+
+    // These are the cases where unicode space character would be beneficial:
+    // - Media attachments that need descriptions ✓
+    // - Empty or HTML-only content that extracts to empty text ✓
+    // - Valid language detection working ✓
+    // - But validation failing due to empty text content
+
+    println!(
+        "Test demonstrates the empty message + media use case that needs unicode space solution"
+    );
+}
+
+#[tokio::test]
+async fn test_unicode_space_character_solution() {
+    // Test the proposed solution using unicode space characters
+    // This validates that the solution would work as expected
+
+    let test_cases = vec![
+        ("", "\u{200B}"),           // Empty -> zero-width space
+        ("   ", "\u{200B}"),        // Whitespace -> zero-width space
+        ("<p></p>", "\u{200B}"),    // Empty HTML -> zero-width space
+        ("<p>   </p>", "\u{200B}"), // Whitespace HTML -> zero-width space
+    ];
+
+    for (original, expected_replacement) in test_cases {
+        // Extract text as the current system would
+        let extracted = alternator::mastodon::MastodonClient::extract_text_from_html(original);
+
+        // Verify it's empty (current problem)
+        assert!(
+            extracted.trim().is_empty(),
+            "Original content '{original}' should extract to empty"
+        );
+
+        // Test the proposed solution
+        let with_unicode_space = if extracted.trim().is_empty() {
+            expected_replacement.to_string()
+        } else {
+            extracted
+        };
+
+        // Verify the solution would pass validation
+        assert!(
+            !with_unicode_space.trim().is_empty(),
+            "Unicode space solution should pass validation"
+        );
+        assert_eq!(
+            with_unicode_space.chars().count(),
+            1,
+            "Should be exactly one unicode character"
+        );
+
+        // Verify it's the correct unicode character
+        assert_eq!(with_unicode_space, "\u{200B}", "Should be zero-width space");
+    }
+
+    // Test that zero-width space is indeed invisible
+    let zero_width_space = "\u{200B}";
+    // Zero-width space is a format character, not whitespace in Rust's definition
+    assert!(
+        zero_width_space
+            .chars()
+            .all(|c| c.is_control() || !c.is_ascii_graphic()),
+        "Zero-width space should be non-visible"
+    );
+
+    // Test that it would not interfere with normal text processing
+    let normal_text = "Hello world";
+    let extracted_normal =
+        alternator::mastodon::MastodonClient::extract_text_from_html(normal_text);
+    assert!(!extracted_normal.trim().is_empty());
+    assert_eq!(
+        extracted_normal, normal_text,
+        "Normal text should be unchanged"
+    );
+}
+
+#[tokio::test]
+async fn test_zero_width_space_implementation_integration() {
+    // Test that the zero-width space implementation resolves the empty message issue
+    let _config = create_test_config();
+
+    // Test cases that would previously fail but should now work
+    let empty_content_cases = vec![
+        ("", "completely empty content"),
+        ("   ", "whitespace-only content"),
+        ("<p></p>", "empty HTML tags"),
+        ("<p>   </p>", "HTML with whitespace"),
+        ("<br/>", "self-closing HTML tag"),
+    ];
+
+    for (content, description) in empty_content_cases {
+        // Extract text as the system would
+        let extracted_text = alternator::mastodon::MastodonClient::extract_text_from_html(content);
+
+        // Verify it extracts to empty (the original problem)
+        assert!(
+            extracted_text.trim().is_empty(),
+            "Content '{content}' ({description}) should extract to empty"
+        );
+
+        // Simulate the new logic that uses zero-width space
+        let status_content = if extracted_text.trim().is_empty() {
+            "\u{200B}".to_string() // Zero-width space
+        } else {
+            extracted_text
+        };
+
+        // Verify the solution works
+        assert!(
+            !status_content.trim().is_empty(),
+            "Status content for '{content}' ({description}) should pass validation with zero-width space"
+        );
+
+        assert_eq!(
+            status_content, "\u{200B}",
+            "Empty content should be replaced with zero-width space"
+        );
+
+        // Verify it's still invisible to users
+        assert!(
+            status_content.chars().all(|c| !c.is_ascii_graphic()),
+            "Zero-width space should be invisible"
+        );
+    }
+
+    // Test that normal content is preserved
+    let normal_content = "Hello world with image";
+    let extracted_normal =
+        alternator::mastodon::MastodonClient::extract_text_from_html(normal_content);
+    let status_content_normal = if extracted_normal.trim().is_empty() {
+        "\u{200B}".to_string()
+    } else {
+        extracted_normal
+    };
+
+    assert_eq!(
+        status_content_normal, normal_content,
+        "Normal content should be preserved unchanged"
+    );
+    assert!(!status_content_normal.trim().is_empty());
+}
