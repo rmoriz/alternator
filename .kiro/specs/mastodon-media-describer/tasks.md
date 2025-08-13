@@ -52,7 +52,7 @@
   - Commit changes: "Add language detection and localized prompt management"
   - _Requirements: 1.6, 1.7_
 
-- [-] 7. Create Mastodon WebSocket streaming client
+- [x] 7. Create Mastodon WebSocket streaming client
   - Implement MastodonClient with WebSocket connection management
   - Add toot event parsing and filtering for authenticated user's posts only
   - Implement automatic reconnection with exponential backoff strategy
@@ -63,7 +63,7 @@
   - Commit changes: "Implement Mastodon WebSocket client with reconnection and API methods"
   - _Requirements: 1.2, 1.3, 1.4, 2.1, 2.2, 2.5, 11.1_
 
-- [ ] 8. Implement balance monitoring system
+- [-] 8. Implement balance monitoring system
   - Create BalanceMonitor with configurable daily checking (default noon)
   - Add threshold comparison logic (default $5) with configurable values
   - Implement direct message sending when balance is below threshold
