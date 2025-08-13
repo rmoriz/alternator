@@ -1,40 +1,76 @@
-# Alternator Configuration File
-# Copy this file to alternator.toml and fill in your values
+# Alternator Configuration Example
+# Copy this file to alternator.toml and customize for your setup
 
 [mastodon]
-# Your Mastodon instance URL
+# Your Mastodon instance URL (required)
 instance_url = "https://mastodon.social"
+
 # Your Mastodon access token (required)
+# Get this from Settings > Development > Applications in your Mastodon instance
+# Requires: read, write, push scopes
 access_token = "your_mastodon_access_token_here"
-# Whether to use user stream (optional, defaults to true)
+
+# Whether to use user stream for monitoring (optional, default: true)
+# Set to false to use public timeline (not recommended for personal use)
 user_stream = true
 
 [openrouter]
 # Your OpenRouter API key (required)
+# Sign up at https://openrouter.ai and get your API key
 api_key = "your_openrouter_api_key_here"
-# AI model to use for image descriptions (required)
+
+# AI model to use for image descriptions (optional, default: "anthropic/claude-3-haiku")
+# Popular options:
+# - "anthropic/claude-3-haiku" (fast, cost-effective)
+# - "anthropic/claude-3-sonnet" (balanced performance/cost)
+# - "openai/gpt-4o-mini" (OpenAI alternative)
+# - "google/gemini-pro-vision" (Google alternative)
 model = "anthropic/claude-3-haiku"
-# OpenRouter API base URL (optional, defaults to https://openrouter.ai/api/v1)
+
+# OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
 base_url = "https://openrouter.ai/api/v1"
-# Maximum tokens per request (optional, helps control costs)
+
+# Maximum tokens for AI responses (optional, default: 150)
+# Controls cost and response length. Typical range: 50-300
 max_tokens = 150
 
 [media]
-# Maximum file size in MB to process (optional, defaults to 10)
+# Maximum file size to process in MB (optional, default: 10)
 max_size_mb = 10
-# Supported image formats (optional, defaults to common formats)
+
+# Supported image formats (optional, default: JPEG, PNG, GIF, WebP)
 supported_formats = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-# Maximum dimension for image resizing (optional, defaults to 1024)
+
+# Maximum dimension for image resizing (optional, default: 1024)
+# Images larger than this will be resized to fit within these dimensions
 resize_max_dimension = 1024
 
 [balance]
-# Enable balance monitoring (optional, defaults to true)
+# Enable balance monitoring (optional, default: true)
 enabled = true
-# Balance threshold for notifications in USD (optional, defaults to 5.0)
+
+# Balance threshold for notifications in USD (optional, default: 5.0)
+# You'll receive a DM when your OpenRouter balance falls below this amount
 threshold = 5.0
-# Time to check balance daily in HH:MM format (optional, defaults to "12:00")
+
+# Time to check balance daily in 24-hour format (optional, default: "12:00")
+# Format: "HH:MM"
 check_time = "12:00"
 
 [logging]
-# Log level: error, warn, info, debug, trace (optional, defaults to "info")
+# Log level (optional, default: "info")
+# Options: "error", "warn", "info", "debug", "trace"
 level = "info"
+
+# Example of environment variable overrides:
+# You can override any configuration value using environment variables
+# with the prefix ALTERNATOR_ and uppercase section/key names:
+#
+# ALTERNATOR_MASTODON_INSTANCE_URL=https://your.instance.com
+# ALTERNATOR_MASTODON_ACCESS_TOKEN=your_token
+# ALTERNATOR_OPENROUTER_API_KEY=your_key
+# ALTERNATOR_OPENROUTER_MODEL=anthropic/claude-3-sonnet
+# ALTERNATOR_OPENROUTER_MAX_TOKENS=200
+# ALTERNATOR_BALANCE_ENABLED=false
+# ALTERNATOR_BALANCE_THRESHOLD=10.0
+# ALTERNATOR_LOG_LEVEL=debug
