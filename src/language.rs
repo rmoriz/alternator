@@ -335,6 +335,7 @@ impl LanguageDetector {
     }
 
     /// Check if a language is supported
+    #[allow(dead_code)]
     pub fn is_language_supported(&self, language: &str) -> bool {
         let normalized_lang = language
             .split('-')
