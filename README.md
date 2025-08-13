@@ -1,4 +1,6 @@
-![Alternator Logo](alternator.webp)
+<div align="center">
+  <img src="alternator.webp" alt="Alternator Logo" width="75%">
+</div>
 
 # Alternator
 
