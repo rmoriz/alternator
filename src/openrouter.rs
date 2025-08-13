@@ -470,6 +470,9 @@ impl OpenRouterClient {
         image_data: &[u8],
         prompt: &str,
     ) -> Result<String, OpenRouterError> {
+        // Replace {model} placeholder in prompt with actual model name
+        let processed_prompt = prompt.replace("{model}", &self.config.model);
+        
         debug!(
             "Generating image description using model: {}",
             self.config.model
@@ -494,7 +497,7 @@ impl OpenRouterClient {
                 role: "user".to_string(),
                 content: vec![
                     ContentPart::Text {
-                        text: prompt.to_string(),
+                        text: processed_prompt,
                     },
                     ContentPart::ImageUrl {
                         image_url: ImageUrl { url: data_url },
@@ -575,8 +578,8 @@ impl OpenRouterClient {
             ));
         }
 
-        // Ensure description respects character limit (1500 chars as per prompt templates)
-        const MAX_DESCRIPTION_LENGTH: usize = 1500;
+        // Ensure description respects character limit (1400 chars to leave room for AI attribution)
+        const MAX_DESCRIPTION_LENGTH: usize = 1400;
         let final_description = if description.chars().count() > MAX_DESCRIPTION_LENGTH {
             warn!(
                 "Description too long ({} chars), truncating to {} chars",
