@@ -2,6 +2,7 @@
 name = "alternator"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.80.0"
 license = "AGPL-3.0"
 description = "Automatically adds descriptions to media attachments in Mastodon toots"
 repository = "https://github.com/rmoriz/alternator.git"
