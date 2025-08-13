@@ -1,0 +1,40 @@
+# Alternator Configuration File
+# Copy this file to alternator.toml and fill in your values
+
+[mastodon]
+# Your Mastodon instance URL
+instance_url = "https://mastodon.social"
+# Your Mastodon access token (required)
+access_token = "your_mastodon_access_token_here"
+# Whether to use user stream (optional, defaults to true)
+user_stream = true
+
+[openrouter]
+# Your OpenRouter API key (required)
+api_key = "your_openrouter_api_key_here"
+# AI model to use for image descriptions (required)
+model = "anthropic/claude-3-haiku"
+# OpenRouter API base URL (optional, defaults to https://openrouter.ai/api/v1)
+base_url = "https://openrouter.ai/api/v1"
+# Maximum tokens per request (optional, helps control costs)
+max_tokens = 150
+
+[media]
+# Maximum file size in MB to process (optional, defaults to 10)
+max_size_mb = 10
+# Supported image formats (optional, defaults to common formats)
+supported_formats = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+# Maximum dimension for image resizing (optional, defaults to 1024)
+resize_max_dimension = 1024
+
+[balance]
+# Enable balance monitoring (optional, defaults to true)
+enabled = true
+# Balance threshold for notifications in USD (optional, defaults to 5.0)
+threshold = 5.0
+# Time to check balance daily in HH:MM format (optional, defaults to "12:00")
+check_time = "12:00"
+
+[logging]
+# Log level: error, warn, info, debug, trace (optional, defaults to "info")
+level = "info"

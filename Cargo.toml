@@ -1,0 +1,24 @@
+[package]
+name = "alternator"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "Automatically adds descriptions to media attachments in Mastodon toots"
+repository = "https://github.com/rmoriz/alternator.git"
+authors = ["Roland Moriz <roland@moriz.de>"]
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
+url = "2.5"
+base64 = "0.22"
