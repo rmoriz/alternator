@@ -77,8 +77,8 @@ impl BalanceMonitor {
         let now = Local::now();
         let today_check = now.date_naive().and_time(check_time);
 
-        // If today's check time has passed, schedule for tomorrow
-        let next_check = if now.time() > check_time {
+        // If today's check time has passed or is now, schedule for tomorrow
+        let next_check = if now.time() >= check_time {
             today_check + chrono::Duration::days(1)
         } else {
             today_check
@@ -94,6 +94,9 @@ impl BalanceMonitor {
 
         let duration = next_check_utc.signed_duration_since(now.with_timezone(&Utc));
         let seconds = duration.num_seconds().max(0) as u64;
+
+        // Ensure we never sleep for less than 60 seconds to prevent busy waiting
+        let seconds = if seconds < 60 { 86400 } else { seconds };
 
         debug!(
             "Next balance check scheduled in {} seconds at {}",
@@ -601,6 +604,24 @@ mod tests {
         // Should be a positive number of seconds (could be up to 24 hours)
         assert!(seconds > 0);
         assert!(seconds <= 24 * 60 * 60); // Max 24 hours
+    }
+
+    #[test]
+    fn test_no_infinite_loop_at_check_time() {
+        // Test that when current time equals check time, we schedule for next day
+        let config = create_test_config();
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let monitor = BalanceMonitor::new(config, openrouter_client);
+
+        let seconds = monitor.seconds_until_next_check().unwrap();
+        
+        // Should never return 0 seconds to prevent infinite loops
+        // Minimum should be 60 seconds (our safety threshold)
+        assert!(seconds >= 60, "Expected at least 60 seconds, got {}", seconds);
+        
+        // Should be reasonable (not more than 24 hours + 1 day)
+        assert!(seconds <= 48 * 60 * 60, "Expected at most 48 hours, got {}", seconds);
     }
 
     // Note: The following tests would require more complex mocking of the OpenRouter client
