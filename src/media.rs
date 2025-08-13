@@ -3,7 +3,7 @@ use crate::mastodon::MediaAttachment;
 use image::{
     codecs::jpeg::JpegEncoder, codecs::png::PngEncoder, DynamicImage, GenericImageView, ImageFormat,
 };
-use serde::{Deserialize, Serialize};
+
 use std::collections::HashSet;
 
 /// Supported image formats for processing

@@ -19,7 +19,7 @@ jobs:
         rust: [stable, beta]
         include:
           - os: ubuntu-latest
-            rust: 1.70.0  # MSRV (Minimum Supported Rust Version)
+            rust: 1.80.0  # MSRV (Minimum Supported Rust Version)
 
     steps:
     - name: Checkout code

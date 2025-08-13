@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_config_validation_invalid_time_format() {
-        let mut config = Config {
+        let config = Config {
             mastodon: MastodonConfig {
                 instance_url: "https://mastodon.social".to_string(),
                 access_token: "token".to_string(),

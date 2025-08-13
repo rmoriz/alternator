@@ -390,7 +390,7 @@ async fn test_toot_processing_race_condition_handling() {
     // Test that the toot processing handles race conditions correctly
     // This simulates the scenario where a toot is edited manually before the automated update
 
-    let config = create_test_config();
+    let _config = create_test_config();
 
     // Create test toot with media that needs description
     let test_toot = TootEvent {
@@ -460,7 +460,7 @@ async fn test_toot_processing_duplicate_prevention() {
     let language_detector = alternator::language::LanguageDetector::new();
 
     // Create TootStreamHandler and manually test duplicate prevention
-    let mut toot_handler = TootStreamHandler::new(
+    let toot_handler = TootStreamHandler::new(
         mastodon_client,
         openrouter_client,
         media_processor,

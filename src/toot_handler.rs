@@ -40,7 +40,7 @@ impl TootStreamHandler {
         self.mastodon_client
             .connect()
             .await
-            .map_err(|e| AlternatorError::Mastodon(e))?;
+            .map_err(AlternatorError::Mastodon)?;
 
         info!("✓ Connected to Mastodon stream - listening for toots");
 
@@ -169,7 +169,7 @@ impl TootStreamHandler {
         let prompt_template = self
             .language_detector
             .get_prompt_template(&detected_language)
-            .map_err(|e| AlternatorError::Language(e))?;
+            .map_err(AlternatorError::Language)?;
 
         debug!(
             "Using language '{}' with prompt template",
@@ -333,7 +333,7 @@ impl TootStreamHandler {
         self.mastodon_client
             .update_media(media_id, description)
             .await
-            .map_err(|e| AlternatorError::Mastodon(e))
+            .map_err(AlternatorError::Mastodon)
     }
 
     /// Check if a toot has already been processed
@@ -386,9 +386,7 @@ mod tests {
     use super::*;
     use crate::config::{MastodonConfig, OpenRouterConfig};
     use crate::mastodon::{Account, MediaAttachment};
-    use crate::media::MediaConfig;
     use chrono::Utc;
-    use std::collections::HashSet;
 
     fn create_test_mastodon_config() -> MastodonConfig {
         MastodonConfig {
