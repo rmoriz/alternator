@@ -76,8 +76,8 @@ cargo build --release
 ### Docker
 
 ```bash
-# Using Docker Hub (when available)
-docker run -v $(pwd)/config:/app/config alternator/alternator
+# Using GitHub Container Registry
+docker run -v $(pwd)/config:/app/config ghcr.io/rmoriz/alternator
 
 # Build locally
 docker build -t alternator .
@@ -185,7 +185,7 @@ cp alternator.toml.example config/alternator.toml
 # Edit config/alternator.toml with your credentials
 
 # Run with Docker
-docker run -v $(pwd)/config:/app/config alternator/alternator
+docker run -v $(pwd)/config:/app/config ghcr.io/rmoriz/alternator
 ```
 
 ### Systemd Service
@@ -288,7 +288,7 @@ Generates descriptions in the detected language of your toot:
 |--------|------|----------|---------|-------------|
 | `max_size_mb` | Float | No | `10.0` | Maximum file size to process (MB) |
 | `supported_formats` | Array | No | `["image/jpeg", ...]` | Supported image formats |
-| `resize_max_dimension` | Integer | No | `1024` | Maximum dimension for resizing |
+| `resize_max_dimension` | Integer | No | `512` | Maximum dimension for resizing |
 
 ### `[balance]` Section
 
@@ -362,7 +362,7 @@ docker logs <container_id>
 
 Verify configuration mounting:
 ```bash
-docker run -v $(pwd)/config:/app/config alternator/alternator ls -la /app/config
+docker run -v $(pwd)/config:/app/config ghcr.io/rmoriz/alternator ls -la /app/config
 ```
 
 ## FAQ
