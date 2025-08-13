@@ -9,14 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Migrated from OpenSSL/native-tls to rustls for improved security and static linking
-- Added musl target support for statically linked Linux binaries compatible with Alpine and glibc distributions
+- **Simplified to musl-only Linux builds** - statically linked binaries work on all distributions (Alpine, Debian, Ubuntu, RHEL, etc.)
 - Optimized binary size with LTO and strip configuration
 
 ### Technical Improvements
 - Replaced reqwest native-tls backend with rustls-tls
 - Replaced tokio-tungstenite native-tls with rustls-tls-webpki-roots
-- Added x86_64-unknown-linux-musl and aarch64-unknown-linux-musl build targets
-- Enhanced CI/CD workflows to build both glibc and musl variants
+- Eliminated separate glibc builds in favor of universal musl static binaries
+- Enhanced CI/CD workflows for simplified cross-platform deployment
 - Improved rate limiter implementation to avoid borrowing issues
 
 ## [0.1.0] - 2025-08-13
