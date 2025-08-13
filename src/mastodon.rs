@@ -903,8 +903,19 @@ impl MastodonStream for MastodonClient {
         let current_status = self.get_toot(toot_id).await?;
         let status_text = Self::extract_text_from_html(&current_status.content);
 
+        debug!("Original content HTML: {}", current_status.content);
+        debug!("Extracted text: '{}'", status_text);
+
         let mut form_data = std::collections::HashMap::new();
-        form_data.insert("status".to_string(), status_text);
+
+        // Only include status text if the original had content
+        // This avoids Mastodon's validation error for empty text
+        if !status_text.trim().is_empty() {
+            debug!("Including original status text in update");
+            form_data.insert("status".to_string(), status_text);
+        } else {
+            debug!("Skipping status text (was empty) - updating only media attachments");
+        }
 
         // Add new media IDs to the status update
         for (index, media_id) in new_media_ids.iter().enumerate() {

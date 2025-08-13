@@ -180,9 +180,12 @@ impl TootStreamHandler {
         let mut media_recreations = Vec::new();
         let mut original_media_ids = Vec::new();
 
+        // First pass: Prepare all media for processing (downloads and preprocessing)
+        let mut prepared_media = Vec::new();
+
         for media in processable_media {
             info!(
-                "Processing media attachment: {} ({})",
+                "Preparing media attachment: {} ({})",
                 media.id, media.media_type
             );
 
@@ -229,35 +232,70 @@ impl TootStreamHandler {
                     }
                 };
 
-            // Generate description using OpenRouter
-            let description = match self
-                .openrouter_client
-                .describe_image(&processed_media_data, prompt_template)
-                .await
-            {
-                Ok(desc) => desc,
+            prepared_media.push((media.id.clone(), original_image_data, processed_media_data));
+        }
+
+        if prepared_media.is_empty() {
+            debug!("No media could be prepared for processing");
+            return Ok(());
+        }
+
+        info!(
+            "Prepared {} media attachments, starting parallel description generation",
+            prepared_media.len()
+        );
+
+        // Second pass: Generate descriptions in parallel using OpenRouter
+        let description_tasks: Vec<_> = prepared_media
+            .iter()
+            .map(|(media_id, _original_data, processed_data)| {
+                let openrouter_client = &self.openrouter_client;
+                let media_id = media_id.clone();
+                async move {
+                    let result = openrouter_client
+                        .describe_image(processed_data, prompt_template)
+                        .await;
+                    (media_id, result)
+                }
+            })
+            .collect();
+
+        let description_results = futures_util::future::join_all(description_tasks).await;
+
+        // Process results and build media recreations
+        for ((media_id, original_data, _processed_data), (result_media_id, description_result)) in
+            prepared_media
+                .into_iter()
+                .zip(description_results.into_iter())
+        {
+            debug_assert_eq!(
+                media_id, result_media_id,
+                "Media ID mismatch in parallel processing"
+            );
+
+            match description_result {
+                Ok(description) => {
+                    info!(
+                        "Generated description for media {}: {}",
+                        media_id, description
+                    );
+                    // Add to media recreations for batch processing
+                    media_recreations.push((original_data, description));
+                    // Track original media ID for cleanup
+                    original_media_ids.push(media_id);
+                }
                 Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
-                    warn!("Token limit exceeded for media {}, skipping", media.id);
+                    warn!("Token limit exceeded for media {}, skipping", media_id);
                     continue; // Skip this media but continue with others
                 }
                 Err(e) => {
                     error!(
                         "Failed to generate description for media {}: {}",
-                        media.id, e
+                        media_id, e
                     );
                     return Err(AlternatorError::OpenRouter(e));
                 }
-            };
-
-            info!(
-                "Generated description for media {}: {}",
-                media.id, description
-            );
-
-            // Add to media recreations for batch processing
-            media_recreations.push((original_image_data, description));
-            // Track original media ID for cleanup
-            original_media_ids.push(media.id.clone());
+            }
         }
 
         // If we have media to recreate, do a batch recreation
