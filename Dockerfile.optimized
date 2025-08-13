@@ -1,6 +1,6 @@
 # Optimized multi-arch Dockerfile that uses pre-built binaries
 # This avoids rebuilding Rust code and speeds up Docker image creation
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Build argument to specify the target architecture
 ARG TARGETARCH
