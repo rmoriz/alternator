@@ -165,7 +165,7 @@ impl TootStreamHandler {
         );
 
         // Detect language for prompt selection
-        let detected_language = self.detect_toot_language(&toot.content)?;
+        let detected_language = self.detect_toot_language(toot)?;
         let prompt_template = self
             .language_detector
             .get_prompt_template(&detected_language)
@@ -262,9 +262,22 @@ impl TootStreamHandler {
 
     /// Detect the language of a toot with fallback handling
     #[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
-    fn detect_toot_language(&self, content: &str) -> Result<String, AlternatorError> {
-        match self.language_detector.detect_language(content) {
-            Ok(lang) => Ok(lang),
+    fn detect_toot_language(&self, toot: &TootEvent) -> Result<String, AlternatorError> {
+        // First, check if the toot has a language attribute
+        if let Some(ref lang) = toot.language {
+            if !lang.trim().is_empty() {
+                debug!("Using toot language attribute: {}", lang);
+                return Ok(lang.clone());
+            }
+        }
+
+        // Fallback to content-based language detection
+        debug!("No toot language attribute found, detecting from content");
+        match self.language_detector.detect_language(&toot.content) {
+            Ok(lang) => {
+                debug!("Detected language from content: {}", lang);
+                Ok(lang)
+            }
             Err(e) => {
                 warn!("Language detection failed: {}, defaulting to English", e);
                 Ok("en".to_string())
@@ -523,21 +536,37 @@ mod tests {
             language_detector,
         );
 
-        // Test with English text
-        let result = handler
-            .detect_toot_language("Hello world, this is a test")
-            .unwrap();
-        assert_eq!(result, "en");
+        // Test with toot that has language attribute
+        let toot_with_lang = create_test_toot("123", vec![]);
+        let mut toot_with_lang = toot_with_lang;
+        toot_with_lang.language = Some("de".to_string());
 
-        // Test with empty text (should fallback to English)
-        let result = handler.detect_toot_language("").unwrap();
-        assert_eq!(result, "en");
-
-        // Test with German text
-        let result = handler
-            .detect_toot_language("Das ist ein Test mit deutschen Wörtern")
-            .unwrap();
+        let result = handler.detect_toot_language(&toot_with_lang).unwrap();
         assert_eq!(result, "de");
+
+        // Test with toot that has empty language attribute (should fallback to content detection)
+        let mut toot_empty_lang = create_test_toot("456", vec![]);
+        toot_empty_lang.language = Some("".to_string());
+        toot_empty_lang.content = "Hello world, this is a test".to_string();
+
+        let result = handler.detect_toot_language(&toot_empty_lang).unwrap();
+        assert_eq!(result, "en");
+
+        // Test with toot without language attribute (should fallback to content detection)
+        let mut toot_no_lang = create_test_toot("789", vec![]);
+        toot_no_lang.language = None;
+        toot_no_lang.content = "Das ist ein Test mit deutschen Wörtern".to_string();
+
+        let result = handler.detect_toot_language(&toot_no_lang).unwrap();
+        assert_eq!(result, "de");
+
+        // Test with toot without language and empty content (should fallback to English)
+        let mut toot_empty = create_test_toot("000", vec![]);
+        toot_empty.language = None;
+        toot_empty.content = "".to_string();
+
+        let result = handler.detect_toot_language(&toot_empty).unwrap();
+        assert_eq!(result, "en");
     }
 
     #[test]
