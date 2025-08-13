@@ -39,7 +39,7 @@ impl BalanceMonitor {
     /// Get the configured check time
     pub fn check_time(&self) -> Result<NaiveTime, BalanceError> {
         let time_str = self.config.check_time.as_deref().unwrap_or("12:00");
-        
+
         // Parse time in HH:MM format
         let parts: Vec<&str> = time_str.split(':').collect();
         if parts.len() != 2 {
@@ -48,13 +48,17 @@ impl BalanceMonitor {
             });
         }
 
-        let hour: u32 = parts[0].parse().map_err(|_| BalanceError::InvalidCheckTime {
-            time: time_str.to_string(),
-        })?;
+        let hour: u32 = parts[0]
+            .parse()
+            .map_err(|_| BalanceError::InvalidCheckTime {
+                time: time_str.to_string(),
+            })?;
 
-        let minute: u32 = parts[1].parse().map_err(|_| BalanceError::InvalidCheckTime {
-            time: time_str.to_string(),
-        })?;
+        let minute: u32 = parts[1]
+            .parse()
+            .map_err(|_| BalanceError::InvalidCheckTime {
+                time: time_str.to_string(),
+            })?;
 
         if hour >= 24 || minute >= 60 {
             return Err(BalanceError::InvalidCheckTime {
@@ -62,10 +66,9 @@ impl BalanceMonitor {
             });
         }
 
-        NaiveTime::from_hms_opt(hour, minute, 0)
-            .ok_or_else(|| BalanceError::InvalidCheckTime {
-                time: time_str.to_string(),
-            })
+        NaiveTime::from_hms_opt(hour, minute, 0).ok_or_else(|| BalanceError::InvalidCheckTime {
+            time: time_str.to_string(),
+        })
     }
 
     /// Calculate seconds until next check time
@@ -73,7 +76,7 @@ impl BalanceMonitor {
         let check_time = self.check_time()?;
         let now = Local::now();
         let today_check = now.date_naive().and_time(check_time);
-        
+
         // If today's check time has passed, schedule for tomorrow
         let next_check = if now.time() > check_time {
             today_check + chrono::Duration::days(1)
@@ -81,7 +84,9 @@ impl BalanceMonitor {
             today_check
         };
 
-        let next_check_utc = next_check.and_local_timezone(Local).single()
+        let next_check_utc = next_check
+            .and_local_timezone(Local)
+            .single()
             .ok_or_else(|| BalanceError::InvalidCheckTime {
                 time: check_time.to_string(),
             })?
@@ -90,7 +95,10 @@ impl BalanceMonitor {
         let duration = next_check_utc.signed_duration_since(now.with_timezone(&Utc));
         let seconds = duration.num_seconds().max(0) as u64;
 
-        debug!("Next balance check scheduled in {} seconds at {}", seconds, next_check_utc);
+        debug!(
+            "Next balance check scheduled in {} seconds at {}",
+            seconds, next_check_utc
+        );
         Ok(seconds)
     }
 
@@ -98,7 +106,7 @@ impl BalanceMonitor {
     fn should_check_now(&self) -> Result<bool, BalanceError> {
         let check_time = self.check_time()?;
         let now = Local::now();
-        
+
         // Check if we're within the check time window (within 5 minutes)
         let current_time = now.time();
         let check_window_start = check_time;
@@ -112,7 +120,7 @@ impl BalanceMonitor {
         };
 
         let in_window = current_time >= check_window_start && current_time <= check_window_end;
-        
+
         if !in_window {
             return Ok(false);
         }
@@ -121,7 +129,7 @@ impl BalanceMonitor {
         if let Some(last_check) = self.last_check {
             let today = now.date_naive();
             let last_check_date = last_check.with_timezone(&Local).date_naive();
-            
+
             if last_check_date == today {
                 debug!("Balance already checked today");
                 return Ok(false);
@@ -144,23 +152,31 @@ impl BalanceMonitor {
         info!("Checking OpenRouter account balance");
 
         // Get current balance
-        let balance = self.openrouter_client
+        let balance = self
+            .openrouter_client
             .get_account_balance()
             .await
             .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {}", e)))?;
 
         self.last_check = Some(Utc::now());
-        
+
         let threshold = self.threshold();
-        info!("Current balance: ${:.2}, threshold: ${:.2}", balance, threshold);
+        info!(
+            "Current balance: ${:.2}, threshold: ${:.2}",
+            balance, threshold
+        );
 
         // Check if balance is below threshold
         if balance < threshold {
-            warn!("Balance ${:.2} is below threshold ${:.2}", balance, threshold);
-            
+            warn!(
+                "Balance ${:.2} is below threshold ${:.2}",
+                balance, threshold
+            );
+
             // Check if we should send a notification (avoid spam)
             if self.should_send_notification() {
-                self.send_low_balance_notification(mastodon_client, balance, threshold).await?;
+                self.send_low_balance_notification(mastodon_client, balance, threshold)
+                    .await?;
                 self.last_notification = Some(Utc::now());
             } else {
                 debug!("Skipping notification to avoid spam");
@@ -178,12 +194,12 @@ impl BalanceMonitor {
         if let Some(last_notification) = self.last_notification {
             let now = Utc::now();
             let hours_since_last = now.signed_duration_since(last_notification).num_hours();
-            
+
             if hours_since_last < 24 {
                 return false;
             }
         }
-        
+
         true
     }
 
@@ -206,7 +222,7 @@ impl BalanceMonitor {
         );
 
         info!("Sending low balance notification");
-        
+
         mastodon_client
             .send_dm(&message)
             .await
@@ -227,7 +243,7 @@ impl BalanceMonitor {
         }
 
         info!("Starting balance monitoring service");
-        
+
         loop {
             // Check if we should perform a balance check now
             if self.should_check_now()? {
@@ -251,7 +267,10 @@ impl BalanceMonitor {
                 }
             };
 
-            debug!("Sleeping for {} seconds until next balance check", sleep_duration.as_secs());
+            debug!(
+                "Sleeping for {} seconds until next balance check",
+                sleep_duration.as_secs()
+            );
             sleep(sleep_duration).await;
         }
     }
@@ -263,19 +282,27 @@ impl BalanceMonitor {
     {
         info!("Performing immediate balance check");
 
-        let balance = self.openrouter_client
+        let balance = self
+            .openrouter_client
             .get_account_balance()
             .await
             .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {}", e)))?;
 
         self.last_check = Some(Utc::now());
-        
+
         let threshold = self.threshold();
-        info!("Current balance: ${:.2}, threshold: ${:.2}", balance, threshold);
+        info!(
+            "Current balance: ${:.2}, threshold: ${:.2}",
+            balance, threshold
+        );
 
         if balance < threshold {
-            warn!("Balance ${:.2} is below threshold ${:.2}", balance, threshold);
-            self.send_low_balance_notification(mastodon_client, balance, threshold).await?;
+            warn!(
+                "Balance ${:.2} is below threshold ${:.2}",
+                balance, threshold
+            );
+            self.send_low_balance_notification(mastodon_client, balance, threshold)
+                .await?;
             self.last_notification = Some(Utc::now());
         }
 
@@ -289,7 +316,6 @@ mod tests {
     use crate::config::OpenRouterConfig;
     use crate::error::MastodonError;
     use crate::mastodon::{Account, TootEvent};
-
 
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -330,10 +356,16 @@ mod tests {
         }
 
         async fn get_toot(&self, _toot_id: &str) -> Result<TootEvent, MastodonError> {
-            Err(MastodonError::TootNotFound { toot_id: "test".to_string() })
+            Err(MastodonError::TootNotFound {
+                toot_id: "test".to_string(),
+            })
         }
 
-        async fn update_media(&self, _media_id: &str, _description: &str) -> Result<(), MastodonError> {
+        async fn update_media(
+            &self,
+            _media_id: &str,
+            _description: &str,
+        ) -> Result<(), MastodonError> {
             Ok(())
         }
 
@@ -341,7 +373,7 @@ mod tests {
             if self.should_fail {
                 return Err(MastodonError::ApiRequestFailed("Mock failure".to_string()));
             }
-            
+
             self.sent_messages.lock().await.push(message.to_string());
             Ok(())
         }
@@ -380,7 +412,9 @@ mod tests {
 
         async fn get_account_balance(&self) -> Result<f64, crate::error::OpenRouterError> {
             if self.should_fail {
-                return Err(crate::error::OpenRouterError::ApiRequestFailed("Mock failure".to_string()));
+                return Err(crate::error::OpenRouterError::ApiRequestFailed(
+                    "Mock failure".to_string(),
+                ));
             }
             Ok(self.balance)
         }
@@ -406,7 +440,8 @@ mod tests {
     #[test]
     fn test_balance_monitor_creation() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config.clone(), openrouter_client);
 
         assert!(monitor.is_enabled());
@@ -419,7 +454,8 @@ mod tests {
     fn test_balance_monitor_disabled() {
         let mut config = create_test_config();
         config.enabled = Some(false);
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         assert!(!monitor.is_enabled());
@@ -432,7 +468,8 @@ mod tests {
             threshold: None,
             check_time: None,
         };
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         assert!(monitor.is_enabled()); // Default is true
@@ -442,7 +479,8 @@ mod tests {
     #[test]
     fn test_check_time_parsing() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let check_time = monitor.check_time().unwrap();
@@ -454,7 +492,8 @@ mod tests {
     fn test_check_time_parsing_custom() {
         let mut config = create_test_config();
         config.check_time = Some("14:30".to_string());
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let check_time = monitor.check_time().unwrap();
@@ -466,42 +505,55 @@ mod tests {
     fn test_check_time_parsing_invalid_format() {
         let mut config = create_test_config();
         config.check_time = Some("invalid".to_string());
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let result = monitor.check_time();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), BalanceError::InvalidCheckTime { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            BalanceError::InvalidCheckTime { .. }
+        ));
     }
 
     #[test]
     fn test_check_time_parsing_invalid_hour() {
         let mut config = create_test_config();
         config.check_time = Some("25:00".to_string());
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let result = monitor.check_time();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), BalanceError::InvalidCheckTime { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            BalanceError::InvalidCheckTime { .. }
+        ));
     }
 
     #[test]
     fn test_check_time_parsing_invalid_minute() {
         let mut config = create_test_config();
         config.check_time = Some("12:60".to_string());
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let result = monitor.check_time();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), BalanceError::InvalidCheckTime { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            BalanceError::InvalidCheckTime { .. }
+        ));
     }
 
     #[test]
     fn test_should_send_notification_first_time() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         assert!(monitor.should_send_notification());
@@ -510,7 +562,8 @@ mod tests {
     #[test]
     fn test_should_send_notification_recent() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let mut monitor = BalanceMonitor::new(config, openrouter_client);
 
         // Set last notification to 1 hour ago
@@ -522,7 +575,8 @@ mod tests {
     #[test]
     fn test_should_send_notification_old() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let mut monitor = BalanceMonitor::new(config, openrouter_client);
 
         // Set last notification to 25 hours ago
@@ -534,7 +588,8 @@ mod tests {
     #[test]
     fn test_seconds_until_next_check() {
         let config = create_test_config();
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let seconds = monitor.seconds_until_next_check().unwrap();
@@ -545,18 +600,19 @@ mod tests {
 
     // Note: The following tests would require more complex mocking of the OpenRouter client
     // For now, we'll focus on the core logic tests above
-    
+
     #[tokio::test]
     async fn test_check_balance_disabled() {
         let mut config = create_test_config();
         config.enabled = Some(false);
-        let openrouter_client = crate::openrouter::OpenRouterClient::new(create_openrouter_config());
+        let openrouter_client =
+            crate::openrouter::OpenRouterClient::new(create_openrouter_config());
         let mut monitor = BalanceMonitor::new(config, openrouter_client);
         let mastodon_client = MockMastodonClient::new();
 
         let result = monitor.check_balance(&mastodon_client).await;
         assert!(result.is_ok());
-        
+
         // No messages should be sent when disabled
         let messages = mastodon_client.get_sent_messages().await;
         assert!(messages.is_empty());
@@ -569,15 +625,21 @@ mod tests {
         assert!(check_error.to_string().contains("network timeout"));
 
         let threshold_error = BalanceError::InvalidThreshold { threshold: -1.0 };
-        assert!(threshold_error.to_string().contains("Invalid balance threshold"));
+        assert!(threshold_error
+            .to_string()
+            .contains("Invalid balance threshold"));
         assert!(threshold_error.to_string().contains("-1"));
 
-        let time_error = BalanceError::InvalidCheckTime { time: "25:00".to_string() };
+        let time_error = BalanceError::InvalidCheckTime {
+            time: "25:00".to_string(),
+        };
         assert!(time_error.to_string().contains("Invalid check time format"));
         assert!(time_error.to_string().contains("25:00"));
 
         let notification_error = BalanceError::NotificationFailed("DM failed".to_string());
-        assert!(notification_error.to_string().contains("Notification sending failed"));
+        assert!(notification_error
+            .to_string()
+            .contains("Notification sending failed"));
         assert!(notification_error.to_string().contains("DM failed"));
     }
 }

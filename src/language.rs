@@ -1,6 +1,6 @@
+use crate::error::LanguageError;
 use std::collections::HashMap;
 use tracing::{debug, warn};
-use crate::error::LanguageError;
 
 /// Language detector with prompt template management
 pub struct LanguageDetector {
@@ -11,62 +11,60 @@ impl LanguageDetector {
     /// Create a new language detector with built-in prompt templates
     pub fn new() -> Self {
         let mut prompt_templates = HashMap::new();
-        
+
         // English template (default)
         prompt_templates.insert(
             "en".to_string(),
             "Please provide a concise, descriptive alt-text for this image that would be helpful for visually impaired users. Focus on the main subject, important details, and context. Keep it under 150 characters.".to_string()
         );
-        
+
         // German template
         prompt_templates.insert(
             "de".to_string(),
             "Bitte erstelle einen prägnanten, beschreibenden Alt-Text für dieses Bild, der für sehbehinderte Nutzer hilfreich wäre. Konzentriere dich auf das Hauptmotiv, wichtige Details und den Kontext. Halte es unter 150 Zeichen.".to_string()
         );
-        
+
         // French template
         prompt_templates.insert(
             "fr".to_string(),
             "Veuillez fournir un texte alternatif concis et descriptif pour cette image qui serait utile aux utilisateurs malvoyants. Concentrez-vous sur le sujet principal, les détails importants et le contexte. Limitez à 150 caractères.".to_string()
         );
-        
+
         // Spanish template
         prompt_templates.insert(
             "es".to_string(),
             "Por favor, proporciona un texto alternativo conciso y descriptivo para esta imagen que sea útil para usuarios con discapacidad visual. Enfócate en el tema principal, detalles importantes y contexto. Manténlo bajo 150 caracteres.".to_string()
         );
-        
+
         // Italian template
         prompt_templates.insert(
             "it".to_string(),
             "Si prega di fornire un testo alternativo conciso e descrittivo per questa immagine che sia utile per gli utenti ipovedenti. Concentrati sul soggetto principale, dettagli importanti e contesto. Mantienilo sotto i 150 caratteri.".to_string()
         );
-        
+
         // Portuguese template
         prompt_templates.insert(
             "pt".to_string(),
             "Por favor, forneça um texto alternativo conciso e descritivo para esta imagem que seja útil para usuários com deficiência visual. Foque no assunto principal, detalhes importantes e contexto. Mantenha abaixo de 150 caracteres.".to_string()
         );
-        
+
         // Dutch template
         prompt_templates.insert(
             "nl".to_string(),
             "Geef alstublieft een beknopte, beschrijvende alt-tekst voor deze afbeelding die nuttig zou zijn voor visueel gehandicapte gebruikers. Focus op het hoofdonderwerp, belangrijke details en context. Houd het onder de 150 tekens.".to_string()
         );
-        
+
         // Japanese template
         prompt_templates.insert(
             "ja".to_string(),
             "視覚障害者の方に役立つ、この画像の簡潔で説明的な代替テキストを提供してください。主要な被写体、重要な詳細、文脈に焦点を当ててください。150文字以内でお願いします。".to_string()
         );
-        
-        Self {
-            prompt_templates,
-        }
+
+        Self { prompt_templates }
     }
-    
+
     /// Detect the language of the given text
-    /// 
+    ///
     /// This is a simple heuristic-based language detection.
     /// For production use, consider using a proper language detection library.
     pub fn detect_language(&self, text: &str) -> Result<String, LanguageError> {
@@ -74,20 +72,20 @@ impl LanguageDetector {
             debug!("Empty text provided for language detection, defaulting to English");
             return Ok("en".to_string());
         }
-        
+
         let text_lower = text.to_lowercase();
         let words: Vec<&str> = text_lower.split_whitespace().collect();
-        
+
         if words.is_empty() {
             debug!("No words found in text, defaulting to English");
             return Ok("en".to_string());
         }
-        
+
         debug!("Detecting language for text with {} words", words.len());
-        
+
         // Language detection based on common words and patterns
         let language_scores = self.calculate_language_scores(&words);
-        
+
         // Find the language with the highest score
         let detected_language = language_scores
             .iter()
@@ -100,22 +98,22 @@ impl LanguageDetector {
                 debug!("No clear language detected, defaulting to English");
                 "en".to_string()
             });
-        
+
         Ok(detected_language)
     }
-    
+
     /// Calculate language scores based on common words
     fn calculate_language_scores(&self, words: &[&str]) -> HashMap<String, f64> {
         let mut scores = HashMap::new();
-        
+
         // Initialize scores for supported languages
         for lang in ["en", "de", "fr", "es", "it", "pt", "nl", "ja"] {
             scores.insert(lang.to_string(), 0.0);
         }
-        
+
         // Common words for each language with their weights
         let language_indicators = self.get_language_indicators();
-        
+
         for word in words {
             for (lang, indicators) in &language_indicators {
                 if let Some(weight) = indicators.get(*word) {
@@ -123,20 +121,20 @@ impl LanguageDetector {
                 }
             }
         }
-        
+
         // Normalize scores by text length
         let total_words = words.len() as f64;
         for score in scores.values_mut() {
             *score /= total_words;
         }
-        
+
         scores
     }
-    
+
     /// Get language indicators (common words) for each supported language
     fn get_language_indicators(&self) -> HashMap<String, HashMap<String, f64>> {
         let mut indicators = HashMap::new();
-        
+
         // English indicators
         let mut en_words = HashMap::new();
         en_words.insert("the".to_string(), 3.0);
@@ -155,7 +153,7 @@ impl LanguageDetector {
         en_words.insert("on".to_string(), 1.5);
         en_words.insert("are".to_string(), 1.5);
         indicators.insert("en".to_string(), en_words);
-        
+
         // German indicators
         let mut de_words = HashMap::new();
         de_words.insert("der".to_string(), 3.0);
@@ -174,7 +172,7 @@ impl LanguageDetector {
         de_words.insert("eine".to_string(), 1.5);
         de_words.insert("sich".to_string(), 1.5);
         indicators.insert("de".to_string(), de_words);
-        
+
         // French indicators
         let mut fr_words = HashMap::new();
         fr_words.insert("le".to_string(), 3.0);
@@ -193,7 +191,7 @@ impl LanguageDetector {
         fr_words.insert("par".to_string(), 1.5);
         fr_words.insert("ce".to_string(), 1.5);
         indicators.insert("fr".to_string(), fr_words);
-        
+
         // Spanish indicators
         let mut es_words = HashMap::new();
         es_words.insert("el".to_string(), 3.0);
@@ -212,7 +210,7 @@ impl LanguageDetector {
         es_words.insert("que".to_string(), 1.5);
         es_words.insert("se".to_string(), 1.5);
         indicators.insert("es".to_string(), es_words);
-        
+
         // Italian indicators
         let mut it_words = HashMap::new();
         it_words.insert("il".to_string(), 3.0);
@@ -231,7 +229,7 @@ impl LanguageDetector {
         it_words.insert("da".to_string(), 1.5);
         it_words.insert("che".to_string(), 1.5);
         indicators.insert("it".to_string(), it_words);
-        
+
         // Portuguese indicators
         let mut pt_words = HashMap::new();
         pt_words.insert("o".to_string(), 3.0);
@@ -250,7 +248,7 @@ impl LanguageDetector {
         pt_words.insert("que".to_string(), 1.5);
         pt_words.insert("se".to_string(), 1.5);
         indicators.insert("pt".to_string(), pt_words);
-        
+
         // Dutch indicators
         let mut nl_words = HashMap::new();
         nl_words.insert("de".to_string(), 3.0);
@@ -268,7 +266,7 @@ impl LanguageDetector {
         nl_words.insert("aan".to_string(), 1.5);
         nl_words.insert("bij".to_string(), 1.5);
         indicators.insert("nl".to_string(), nl_words);
-        
+
         // Japanese indicators (basic hiragana particles and common words)
         let mut ja_words = HashMap::new();
         ja_words.insert("の".to_string(), 3.0);
@@ -285,48 +283,63 @@ impl LanguageDetector {
         ja_words.insert("した".to_string(), 1.5);
         ja_words.insert("する".to_string(), 1.5);
         indicators.insert("ja".to_string(), ja_words);
-        
+
         indicators
     }
-    
+
     /// Get the appropriate prompt template for the detected language
     pub fn get_prompt_template(&self, language: &str) -> Result<&str, LanguageError> {
         // Normalize language code (handle cases like "en-US" -> "en")
-        let normalized_lang = language.split('-').next().unwrap_or(language).to_lowercase();
-        
-        debug!("Getting prompt template for language: {} (normalized: {})", language, normalized_lang);
-        
+        let normalized_lang = language
+            .split('-')
+            .next()
+            .unwrap_or(language)
+            .to_lowercase();
+
+        debug!(
+            "Getting prompt template for language: {} (normalized: {})",
+            language, normalized_lang
+        );
+
         match self.prompt_templates.get(&normalized_lang) {
             Some(template) => {
                 debug!("Found prompt template for language: {}", normalized_lang);
                 Ok(template.as_str())
             }
             None => {
-                warn!("No prompt template found for language: {}, falling back to English", normalized_lang);
+                warn!(
+                    "No prompt template found for language: {}, falling back to English",
+                    normalized_lang
+                );
                 // Fall back to English template
-                self.prompt_templates.get("en")
+                self.prompt_templates
+                    .get("en")
                     .map(|s| s.as_str())
-                    .ok_or_else(|| LanguageError::PromptTemplateNotFound { 
-                        language: normalized_lang 
+                    .ok_or_else(|| LanguageError::PromptTemplateNotFound {
+                        language: normalized_lang,
                     })
             }
         }
     }
-    
+
     /// Get all supported languages
     pub fn supported_languages(&self) -> Vec<&String> {
         self.prompt_templates.keys().collect()
     }
-    
+
     /// Add or update a prompt template for a specific language
     pub fn add_prompt_template(&mut self, language: String, template: String) {
         debug!("Adding prompt template for language: {}", language);
         self.prompt_templates.insert(language, template);
     }
-    
+
     /// Check if a language is supported
     pub fn is_language_supported(&self, language: &str) -> bool {
-        let normalized_lang = language.split('-').next().unwrap_or(language).to_lowercase();
+        let normalized_lang = language
+            .split('-')
+            .next()
+            .unwrap_or(language)
+            .to_lowercase();
         self.prompt_templates.contains_key(&normalized_lang)
     }
 }
@@ -341,10 +354,10 @@ impl Default for LanguageDetector {
 pub trait LanguageService {
     /// Detect the language of the given text
     fn detect_language(&self, text: &str) -> Result<String, LanguageError>;
-    
+
     /// Get the appropriate prompt template for the language
     fn get_prompt_template(&self, language: &str) -> Result<&str, LanguageError>;
-    
+
     /// Check if a language is supported
     fn is_language_supported(&self, language: &str) -> bool;
 }
@@ -353,11 +366,11 @@ impl LanguageService for LanguageDetector {
     fn detect_language(&self, text: &str) -> Result<String, LanguageError> {
         self.detect_language(text)
     }
-    
+
     fn get_prompt_template(&self, language: &str) -> Result<&str, LanguageError> {
         self.get_prompt_template(language)
     }
-    
+
     fn is_language_supported(&self, language: &str) -> bool {
         self.is_language_supported(language)
     }
@@ -371,7 +384,7 @@ mod tests {
     fn test_language_detector_creation() {
         let detector = LanguageDetector::new();
         let supported_langs = detector.supported_languages();
-        
+
         // Should have at least the basic languages
         assert!(supported_langs.len() >= 8);
         assert!(supported_langs.contains(&&"en".to_string()));
@@ -383,12 +396,14 @@ mod tests {
     #[test]
     fn test_english_detection() {
         let detector = LanguageDetector::new();
-        
-        let english_text = "The quick brown fox jumps over the lazy dog and runs through the forest";
+
+        let english_text =
+            "The quick brown fox jumps over the lazy dog and runs through the forest";
         let result = detector.detect_language(english_text).unwrap();
         assert_eq!(result, "en");
-        
-        let english_text2 = "This is a test message with common English words like the, and, is, in, to, of";
+
+        let english_text2 =
+            "This is a test message with common English words like the, and, is, in, to, of";
         let result2 = detector.detect_language(english_text2).unwrap();
         assert_eq!(result2, "en");
     }
@@ -396,12 +411,14 @@ mod tests {
     #[test]
     fn test_german_detection() {
         let detector = LanguageDetector::new();
-        
-        let german_text = "Der schnelle braune Fuchs springt über den faulen Hund und läuft durch den Wald";
+
+        let german_text =
+            "Der schnelle braune Fuchs springt über den faulen Hund und läuft durch den Wald";
         let result = detector.detect_language(german_text).unwrap();
         assert_eq!(result, "de");
-        
-        let german_text2 = "Das ist ein Test mit deutschen Wörtern wie der, die, das, und, ist, in, zu";
+
+        let german_text2 =
+            "Das ist ein Test mit deutschen Wörtern wie der, die, das, und, ist, in, zu";
         let result2 = detector.detect_language(german_text2).unwrap();
         assert_eq!(result2, "de");
     }
@@ -409,12 +426,14 @@ mod tests {
     #[test]
     fn test_french_detection() {
         let detector = LanguageDetector::new();
-        
-        let french_text = "Le renard brun rapide saute par-dessus le chien paresseux et court dans la forêt";
+
+        let french_text =
+            "Le renard brun rapide saute par-dessus le chien paresseux et court dans la forêt";
         let result = detector.detect_language(french_text).unwrap();
         assert_eq!(result, "fr");
-        
-        let french_text2 = "Ceci est un test avec des mots français comme le, la, les, et, est, dans, de";
+
+        let french_text2 =
+            "Ceci est un test avec des mots français comme le, la, les, et, est, dans, de";
         let result2 = detector.detect_language(french_text2).unwrap();
         assert_eq!(result2, "fr");
     }
@@ -422,12 +441,14 @@ mod tests {
     #[test]
     fn test_spanish_detection() {
         let detector = LanguageDetector::new();
-        
-        let spanish_text = "El zorro marrón rápido salta sobre el perro perezoso y corre por el bosque";
+
+        let spanish_text =
+            "El zorro marrón rápido salta sobre el perro perezoso y corre por el bosque";
         let result = detector.detect_language(spanish_text).unwrap();
         assert_eq!(result, "es");
-        
-        let spanish_text2 = "Esta es una prueba con palabras españolas como el, la, los, las, y, es, en, de";
+
+        let spanish_text2 =
+            "Esta es una prueba con palabras españolas como el, la, los, las, y, es, en, de";
         let result2 = detector.detect_language(spanish_text2).unwrap();
         assert_eq!(result2, "es");
     }
@@ -435,10 +456,10 @@ mod tests {
     #[test]
     fn test_empty_text_defaults_to_english() {
         let detector = LanguageDetector::new();
-        
+
         let result = detector.detect_language("").unwrap();
         assert_eq!(result, "en");
-        
+
         let result2 = detector.detect_language("   ").unwrap();
         assert_eq!(result2, "en");
     }
@@ -446,7 +467,7 @@ mod tests {
     #[test]
     fn test_mixed_language_detection() {
         let detector = LanguageDetector::new();
-        
+
         // Text with mixed languages should detect the dominant one
         let mixed_text = "The quick brown fox und der faule Hund";
         let result = detector.detect_language(mixed_text).unwrap();
@@ -457,7 +478,7 @@ mod tests {
     #[test]
     fn test_get_prompt_template_english() {
         let detector = LanguageDetector::new();
-        
+
         let template = detector.get_prompt_template("en").unwrap();
         assert!(template.contains("alt-text"));
         assert!(template.contains("visually impaired"));
@@ -467,7 +488,7 @@ mod tests {
     #[test]
     fn test_get_prompt_template_german() {
         let detector = LanguageDetector::new();
-        
+
         let template = detector.get_prompt_template("de").unwrap();
         assert!(template.contains("Alt-Text"));
         assert!(template.contains("sehbehinderte"));
@@ -477,7 +498,7 @@ mod tests {
     #[test]
     fn test_get_prompt_template_french() {
         let detector = LanguageDetector::new();
-        
+
         let template = detector.get_prompt_template("fr").unwrap();
         assert!(template.contains("texte alternatif"));
         assert!(template.contains("malvoyants"));
@@ -487,7 +508,7 @@ mod tests {
     #[test]
     fn test_get_prompt_template_fallback() {
         let detector = LanguageDetector::new();
-        
+
         // Unsupported language should fall back to English
         let template = detector.get_prompt_template("xyz").unwrap();
         assert!(template.contains("alt-text"));
@@ -497,14 +518,14 @@ mod tests {
     #[test]
     fn test_get_prompt_template_normalized_language_code() {
         let detector = LanguageDetector::new();
-        
+
         // Should handle language codes with country variants
         let template = detector.get_prompt_template("en-US").unwrap();
         assert!(template.contains("alt-text"));
-        
+
         let template2 = detector.get_prompt_template("de-DE").unwrap();
         assert!(template2.contains("Alt-Text"));
-        
+
         let template3 = detector.get_prompt_template("fr-FR").unwrap();
         assert!(template3.contains("texte alternatif"));
     }
@@ -512,14 +533,14 @@ mod tests {
     #[test]
     fn test_is_language_supported() {
         let detector = LanguageDetector::new();
-        
+
         assert!(detector.is_language_supported("en"));
         assert!(detector.is_language_supported("de"));
         assert!(detector.is_language_supported("fr"));
         assert!(detector.is_language_supported("es"));
         assert!(detector.is_language_supported("en-US"));
         assert!(detector.is_language_supported("de-DE"));
-        
+
         assert!(!detector.is_language_supported("xyz"));
         assert!(!detector.is_language_supported("unknown"));
     }
@@ -527,10 +548,10 @@ mod tests {
     #[test]
     fn test_add_prompt_template() {
         let mut detector = LanguageDetector::new();
-        
+
         let custom_template = "Custom template for testing";
         detector.add_prompt_template("test".to_string(), custom_template.to_string());
-        
+
         assert!(detector.is_language_supported("test"));
         let template = detector.get_prompt_template("test").unwrap();
         assert_eq!(template, custom_template);
@@ -540,13 +561,13 @@ mod tests {
     fn test_language_service_trait() {
         let detector = LanguageDetector::new();
         let service: &dyn LanguageService = &detector;
-        
+
         let result = service.detect_language("The quick brown fox").unwrap();
         assert_eq!(result, "en");
-        
+
         let template = service.get_prompt_template("en").unwrap();
         assert!(template.contains("alt-text"));
-        
+
         assert!(service.is_language_supported("en"));
         assert!(!service.is_language_supported("xyz"));
     }
@@ -554,16 +575,18 @@ mod tests {
     #[test]
     fn test_japanese_detection() {
         let detector = LanguageDetector::new();
-        
+
         // Use text with Japanese particles that are in our indicators
         let japanese_text_with_particles = "これは日本語のテストです。画像の説明を作成します。";
-        let result = detector.detect_language(japanese_text_with_particles).unwrap();
-        
+        let result = detector
+            .detect_language(japanese_text_with_particles)
+            .unwrap();
+
         // Test the template regardless of detection result
         let template = detector.get_prompt_template("ja").unwrap();
         assert!(template.contains("代替テキスト"));
         assert!(template.contains("視覚障害者"));
-        
+
         // For now, just test that we can get the Japanese template
         // Our simple heuristic detection might not work perfectly for Japanese
         // In a real implementation, we'd use a proper language detection library
@@ -573,11 +596,12 @@ mod tests {
     #[test]
     fn test_italian_detection() {
         let detector = LanguageDetector::new();
-        
-        let italian_text = "Questa è una prova con parole italiane come il, la, lo, gli, le, e, è, in, di";
+
+        let italian_text =
+            "Questa è una prova con parole italiane come il, la, lo, gli, le, e, è, in, di";
         let result = detector.detect_language(italian_text).unwrap();
         assert_eq!(result, "it");
-        
+
         let template = detector.get_prompt_template("it").unwrap();
         assert!(template.contains("testo alternativo"));
         assert!(template.contains("ipovedenti"));
@@ -586,11 +610,12 @@ mod tests {
     #[test]
     fn test_portuguese_detection() {
         let detector = LanguageDetector::new();
-        
-        let portuguese_text = "Este é um teste com palavras portuguesas como o, a, os, as, e, é, em, de";
+
+        let portuguese_text =
+            "Este é um teste com palavras portuguesas como o, a, os, as, e, é, em, de";
         let result = detector.detect_language(portuguese_text).unwrap();
         assert_eq!(result, "pt");
-        
+
         let template = detector.get_prompt_template("pt").unwrap();
         assert!(template.contains("texto alternativo"));
         assert!(template.contains("deficiência visual"));
@@ -599,11 +624,12 @@ mod tests {
     #[test]
     fn test_dutch_detection() {
         let detector = LanguageDetector::new();
-        
-        let dutch_text = "Dit is een test met Nederlandse woorden zoals de, het, een, en, is, in, van";
+
+        let dutch_text =
+            "Dit is een test met Nederlandse woorden zoals de, het, een, en, is, in, van";
         let result = detector.detect_language(dutch_text).unwrap();
         assert_eq!(result, "nl");
-        
+
         let template = detector.get_prompt_template("nl").unwrap();
         assert!(template.contains("alt-tekst"));
         assert!(template.contains("visueel gehandicapte"));
@@ -612,19 +638,19 @@ mod tests {
     #[test]
     fn test_short_text_detection() {
         let detector = LanguageDetector::new();
-        
+
         // Short texts should still work - but "Hello" could be detected as various languages
         let result = detector.detect_language("Hello").unwrap();
         assert!(detector.is_language_supported(&result)); // Just ensure it's a valid language
-        
+
         let result2 = detector.detect_language("Hallo").unwrap();
         // "Hallo" could be detected as various languages since it's a short word
         // Just ensure we get a valid supported language code
         assert!(detector.is_language_supported(&result2));
-        
+
         let result3 = detector.detect_language("Der Test").unwrap();
         assert_eq!(result3, "de"); // "Der" is a strong German indicator
-        
+
         // Test with French article - but "Le" might be detected as other languages too
         let result4 = detector.detect_language("Le test").unwrap();
         // Our algorithm might detect this differently, so let's be more flexible
@@ -636,11 +662,11 @@ mod tests {
     #[test]
     fn test_case_insensitive_detection() {
         let detector = LanguageDetector::new();
-        
+
         let uppercase_text = "THE QUICK BROWN FOX AND THE LAZY DOG";
         let result = detector.detect_language(uppercase_text).unwrap();
         assert_eq!(result, "en");
-        
+
         let mixed_case_text = "Der SCHNELLE braune FUCHS und DER faule HUND";
         let result2 = detector.detect_language(mixed_case_text).unwrap();
         assert_eq!(result2, "de");

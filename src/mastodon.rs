@@ -1,14 +1,14 @@
 use crate::config::MastodonConfig;
-use crate::error::{AlternatorError, MastodonError, ErrorRecovery};
+use crate::error::{AlternatorError, ErrorRecovery, MastodonError};
 use chrono::{DateTime, Utc};
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio::time::sleep;
-use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream, MaybeTlsStream};
 use tokio::net::TcpStream;
+use tokio::time::sleep;
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, info, warn};
 use url::Url;
-use futures_util::{SinkExt, StreamExt};
 
 /// Mastodon toot event from WebSocket stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,11 +108,14 @@ impl MastodonClient {
     /// Get the WebSocket streaming URL
     fn get_streaming_url(&self) -> Result<Url, MastodonError> {
         let base_url = self.config.instance_url.trim_end_matches('/');
-        let streaming_url = format!("{}/api/v1/streaming?access_token={}&stream=user", 
-            base_url.replace("https://", "wss://").replace("http://", "ws://"),
+        let streaming_url = format!(
+            "{}/api/v1/streaming?access_token={}&stream=user",
+            base_url
+                .replace("https://", "wss://")
+                .replace("http://", "ws://"),
             self.config.access_token
         );
-        
+
         Url::parse(&streaming_url)
             .map_err(|e| MastodonError::ConnectionFailed(format!("Invalid streaming URL: {}", e)))
     }
@@ -122,12 +125,17 @@ impl MastodonClient {
         loop {
             if self.reconnect_attempts > 0 {
                 let delay = ErrorRecovery::retry_delay(
-                    &AlternatorError::Mastodon(MastodonError::ConnectionFailed("reconnect".to_string())), 
-                    self.reconnect_attempts
+                    &AlternatorError::Mastodon(MastodonError::ConnectionFailed(
+                        "reconnect".to_string(),
+                    )),
+                    self.reconnect_attempts,
                 );
-                
-                warn!("Reconnecting to Mastodon WebSocket in {} seconds (attempt {})", 
-                    delay, self.reconnect_attempts + 1);
+
+                warn!(
+                    "Reconnecting to Mastodon WebSocket in {} seconds (attempt {})",
+                    delay,
+                    self.reconnect_attempts + 1
+                );
                 sleep(Duration::from_secs(delay)).await;
             }
 
@@ -139,15 +147,17 @@ impl MastodonClient {
                 }
                 Err(e) => {
                     self.reconnect_attempts += 1;
-                    let max_retries = ErrorRecovery::max_retries(
-                        &AlternatorError::Mastodon(e.clone())
-                    );
-                    
+                    let max_retries =
+                        ErrorRecovery::max_retries(&AlternatorError::Mastodon(e.clone()));
+
                     if self.reconnect_attempts >= max_retries {
                         error!("Max reconnection attempts ({}) exceeded", max_retries);
                         return Err(e);
                     } else {
-                        warn!("Reconnection attempt {} failed: {}", self.reconnect_attempts, e);
+                        warn!(
+                            "Reconnection attempt {} failed: {}",
+                            self.reconnect_attempts, e
+                        );
                         // Continue the loop for next attempt
                     }
                 }
@@ -158,19 +168,25 @@ impl MastodonClient {
     /// Parse streaming event from WebSocket message
     fn parse_streaming_event(&self, message: &str) -> Result<Option<TootEvent>, MastodonError> {
         debug!("Received WebSocket message: {}", message);
-        
-        let stream_event: StreamEvent = serde_json::from_str(message)
-            .map_err(|e| MastodonError::InvalidTootData(format!("Failed to parse stream event: {}", e)))?;
+
+        let stream_event: StreamEvent = serde_json::from_str(message).map_err(|e| {
+            MastodonError::InvalidTootData(format!("Failed to parse stream event: {}", e))
+        })?;
 
         match stream_event.event.as_str() {
             "update" => {
                 if let Some(payload) = stream_event.payload {
-                    let toot: TootEvent = serde_json::from_str(&payload)
-                        .map_err(|e| MastodonError::InvalidTootData(format!("Failed to parse toot: {}", e)))?;
-                    
-                    debug!("Parsed toot event: id={}, account={}, media_count={}", 
-                        toot.id, toot.account.id, toot.media_attachments.len());
-                    
+                    let toot: TootEvent = serde_json::from_str(&payload).map_err(|e| {
+                        MastodonError::InvalidTootData(format!("Failed to parse toot: {}", e))
+                    })?;
+
+                    debug!(
+                        "Parsed toot event: id={}, account={}, media_count={}",
+                        toot.id,
+                        toot.account.id,
+                        toot.media_attachments.len()
+                    );
+
                     Ok(Some(toot))
                 } else {
                     warn!("Received update event without payload");
@@ -205,25 +221,32 @@ impl MastodonStream for MastodonClient {
     /// Connect to Mastodon WebSocket streaming API
     async fn connect(&mut self) -> Result<(), MastodonError> {
         info!("Connecting to Mastodon WebSocket streaming API");
-        
+
         // First verify credentials and get authenticated user ID
         if self.authenticated_user_id.is_none() {
             let account = self.verify_credentials().await?;
             self.authenticated_user_id = Some(account.id.clone());
-            info!("Authenticated as user: {} (@{})", account.display_name, account.acct);
+            info!(
+                "Authenticated as user: {} (@{})",
+                account.display_name, account.acct
+            );
         }
 
         let streaming_url = self.get_streaming_url()?;
         debug!("Connecting to WebSocket URL: {}", streaming_url);
 
-        let (ws_stream, response) = connect_async(streaming_url.as_str()).await
-            .map_err(|e| MastodonError::ConnectionFailed(format!("WebSocket connection failed: {}", e)))?;
+        let (ws_stream, response) = connect_async(streaming_url.as_str()).await.map_err(|e| {
+            MastodonError::ConnectionFailed(format!("WebSocket connection failed: {}", e))
+        })?;
 
-        debug!("WebSocket connection established, response status: {}", response.status());
-        
+        debug!(
+            "WebSocket connection established, response status: {}",
+            response.status()
+        );
+
         self.websocket = Some(ws_stream);
         self.reconnect_attempts = 0;
-        
+
         info!("Successfully connected to Mastodon WebSocket streaming API");
         Ok(())
     }
@@ -293,7 +316,10 @@ impl MastodonStream for MastodonClient {
                 Some(Err(e)) => {
                     error!("WebSocket error: {}", e);
                     self.websocket = None;
-                    return Err(MastodonError::Disconnected(format!("WebSocket error: {}", e)));
+                    return Err(MastodonError::Disconnected(format!(
+                        "WebSocket error: {}",
+                        e
+                    )));
                 }
                 None => {
                     warn!("WebSocket stream ended");
@@ -307,78 +333,105 @@ impl MastodonStream for MastodonClient {
 
     /// Get current toot state for race condition checking
     async fn get_toot(&self, toot_id: &str) -> Result<TootEvent, MastodonError> {
-        let url = format!("{}/api/v1/statuses/{}", 
-            self.config.instance_url.trim_end_matches('/'), 
+        let url = format!(
+            "{}/api/v1/statuses/{}",
+            self.config.instance_url.trim_end_matches('/'),
             toot_id
         );
 
         debug!("Fetching toot state: {}", url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.config.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
             .send()
             .await
             .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to fetch toot: {}", e)))?;
 
         if response.status() == 404 {
-            return Err(MastodonError::TootNotFound { toot_id: toot_id.to_string() });
+            return Err(MastodonError::TootNotFound {
+                toot_id: toot_id.to_string(),
+            });
         }
 
         if !response.status().is_success() {
-            return Err(MastodonError::ApiRequestFailed(
-                format!("API request failed with status: {}", response.status())
-            ));
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "API request failed with status: {}",
+                response.status()
+            )));
         }
 
-        let toot: TootEvent = response.json().await
-            .map_err(|e| MastodonError::InvalidTootData(format!("Failed to parse toot response: {}", e)))?;
+        let toot: TootEvent = response.json().await.map_err(|e| {
+            MastodonError::InvalidTootData(format!("Failed to parse toot response: {}", e))
+        })?;
 
-        debug!("Retrieved toot state: id={}, media_count={}", toot.id, toot.media_attachments.len());
+        debug!(
+            "Retrieved toot state: id={}, media_count={}",
+            toot.id,
+            toot.media_attachments.len()
+        );
         Ok(toot)
     }
 
     /// Update media attachment description
     async fn update_media(&self, media_id: &str, description: &str) -> Result<(), MastodonError> {
-        let url = format!("{}/api/v1/media/{}", 
-            self.config.instance_url.trim_end_matches('/'), 
+        let url = format!(
+            "{}/api/v1/media/{}",
+            self.config.instance_url.trim_end_matches('/'),
             media_id
         );
 
-        debug!("Updating media description: media_id={}, description_length={}", 
-            media_id, description.len());
+        debug!(
+            "Updating media description: media_id={}, description_length={}",
+            media_id,
+            description.len()
+        );
 
         let mut form_data = std::collections::HashMap::new();
         form_data.insert("description", description);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .put(&url)
-            .header("Authorization", format!("Bearer {}", self.config.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
             .form(&form_data)
             .send()
             .await
-            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to update media: {}", e)))?;
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to update media: {}", e))
+            })?;
 
         if response.status() == 404 {
-            return Err(MastodonError::MediaNotFound { media_id: media_id.to_string() });
+            return Err(MastodonError::MediaNotFound {
+                media_id: media_id.to_string(),
+            });
         }
 
         if response.status() == 429 {
-            let retry_after = response.headers()
+            let retry_after = response
+                .headers()
                 .get("retry-after")
                 .and_then(|h| h.to_str().ok())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60);
-            
+
             return Err(MastodonError::RateLimitExceeded { retry_after });
         }
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(MastodonError::ApiRequestFailed(
-                format!("Media update failed with status {}: {}", status, error_text)
-            ));
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Media update failed with status {}: {}",
+                status, error_text
+            )));
         }
 
         info!("Successfully updated media description: {}", media_id);
@@ -387,11 +440,15 @@ impl MastodonStream for MastodonClient {
 
     /// Send direct message to authenticated user
     async fn send_dm(&self, message: &str) -> Result<(), MastodonError> {
-        let user_id = self.authenticated_user_id.as_ref()
+        let user_id = self
+            .authenticated_user_id
+            .as_ref()
             .ok_or(MastodonError::UserVerificationFailed)?;
 
-        let url = format!("{}/api/v1/statuses", 
-            self.config.instance_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/v1/statuses",
+            self.config.instance_url.trim_end_matches('/')
+        );
 
         debug!("Sending direct message to user: {}", user_id);
 
@@ -399,30 +456,36 @@ impl MastodonStream for MastodonClient {
         form_data.insert("status", message);
         form_data.insert("visibility", "direct");
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.config.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
             .form(&form_data)
             .send()
             .await
             .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to send DM: {}", e)))?;
 
         if response.status() == 429 {
-            let retry_after = response.headers()
+            let retry_after = response
+                .headers()
                 .get("retry-after")
                 .and_then(|h| h.to_str().ok())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60);
-            
+
             return Err(MastodonError::RateLimitExceeded { retry_after });
         }
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(MastodonError::ApiRequestFailed(
-                format!("DM sending failed with status {}: {}", status, error_text)
-            ));
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "DM sending failed with status {}: {}",
+                status, error_text
+            )));
         }
 
         info!("Successfully sent direct message");
@@ -431,44 +494,59 @@ impl MastodonStream for MastodonClient {
 
     /// Verify credentials and get authenticated user account
     async fn verify_credentials(&mut self) -> Result<Account, MastodonError> {
-        let url = format!("{}/api/v1/accounts/verify_credentials", 
-            self.config.instance_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/v1/accounts/verify_credentials",
+            self.config.instance_url.trim_end_matches('/')
+        );
 
         debug!("Verifying Mastodon credentials");
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.config.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
             .send()
             .await
-            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to verify credentials: {}", e)))?;
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to verify credentials: {}", e))
+            })?;
 
         if response.status() == 401 {
-            return Err(MastodonError::AuthenticationFailed("Invalid access token".to_string()));
-        }
-
-        if !response.status().is_success() {
-            return Err(MastodonError::ApiRequestFailed(
-                format!("Credential verification failed with status: {}", response.status())
+            return Err(MastodonError::AuthenticationFailed(
+                "Invalid access token".to_string(),
             ));
         }
 
-        let account: Account = response.json().await
-            .map_err(|e| MastodonError::InvalidTootData(format!("Failed to parse account response: {}", e)))?;
+        if !response.status().is_success() {
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Credential verification failed with status: {}",
+                response.status()
+            )));
+        }
 
-        debug!("Credentials verified for user: {} (@{})", account.display_name, account.acct);
+        let account: Account = response.json().await.map_err(|e| {
+            MastodonError::InvalidTootData(format!("Failed to parse account response: {}", e))
+        })?;
+
+        debug!(
+            "Credentials verified for user: {} (@{})",
+            account.display_name, account.acct
+        );
         Ok(account)
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_tungstenite::tungstenite::Message;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-    use tokio::net::{TcpListener, TcpStream};
-    use tokio_tungstenite::{accept_async, WebSocketStream};
     use futures_util::{SinkExt, StreamExt};
+    use std::sync::Arc;
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::Mutex;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{accept_async, WebSocketStream};
 
     /// Mock WebSocket server for testing
     struct MockWebSocketServer {
@@ -501,7 +579,7 @@ mod tests {
 
         async fn handle_connection(&self, mut ws_stream: WebSocketStream<TcpStream>) {
             let messages = self.messages_to_send.clone();
-            
+
             // Send all queued messages
             let messages_to_send = messages.lock().await.clone();
             for message in messages_to_send {
@@ -582,7 +660,7 @@ mod tests {
     fn test_mastodon_client_creation() {
         let config = create_test_config();
         let client = MastodonClient::new(config.clone());
-        
+
         assert_eq!(client.config.instance_url, config.instance_url);
         assert_eq!(client.config.access_token, config.access_token);
         assert_eq!(client.reconnect_attempts, 0);
@@ -594,7 +672,7 @@ mod tests {
     fn test_streaming_url_generation() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let url = client.get_streaming_url().unwrap();
         assert_eq!(url.scheme(), "wss");
         assert!(url.as_str().contains("api/v1/streaming"));
@@ -607,7 +685,7 @@ mod tests {
         let mut config = create_test_config();
         config.instance_url = "http://localhost:3000".to_string();
         let client = MastodonClient::new(config);
-        
+
         let url = client.get_streaming_url().unwrap();
         assert_eq!(url.scheme(), "ws");
     }
@@ -616,10 +694,10 @@ mod tests {
     fn test_parse_streaming_event_update() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let message = create_test_toot_event();
         let result = client.parse_streaming_event(&message).unwrap();
-        
+
         assert!(result.is_some());
         let toot = result.unwrap();
         assert_eq!(toot.id, "123456789");
@@ -632,13 +710,13 @@ mod tests {
     fn test_parse_streaming_event_delete() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let delete_event = StreamEvent {
             event: "delete".to_string(),
             payload: Some("123456789".to_string()),
         };
         let message = serde_json::to_string(&delete_event).unwrap();
-        
+
         let result = client.parse_streaming_event(&message).unwrap();
         assert!(result.is_none());
     }
@@ -647,13 +725,13 @@ mod tests {
     fn test_parse_streaming_event_notification() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let notification_event = StreamEvent {
             event: "notification".to_string(),
             payload: Some("{}".to_string()),
         };
         let message = serde_json::to_string(&notification_event).unwrap();
-        
+
         let result = client.parse_streaming_event(&message).unwrap();
         assert!(result.is_none());
     }
@@ -662,13 +740,13 @@ mod tests {
     fn test_parse_streaming_event_unknown() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let unknown_event = StreamEvent {
             event: "unknown_event".to_string(),
             payload: None,
         };
         let message = serde_json::to_string(&unknown_event).unwrap();
-        
+
         let result = client.parse_streaming_event(&message).unwrap();
         assert!(result.is_none());
     }
@@ -677,10 +755,13 @@ mod tests {
     fn test_parse_streaming_event_invalid_json() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let result = client.parse_streaming_event("invalid json");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MastodonError::InvalidTootData(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            MastodonError::InvalidTootData(_)
+        ));
     }
 
     #[test]
@@ -688,7 +769,7 @@ mod tests {
         let config = create_test_config();
         let mut client = MastodonClient::new(config);
         client.authenticated_user_id = Some("user123".to_string());
-        
+
         let toot = TootEvent {
             id: "123".to_string(),
             account: Account {
@@ -705,7 +786,7 @@ mod tests {
             url: None,
             visibility: "public".to_string(),
         };
-        
+
         let result = client.is_own_toot(&toot).unwrap();
         assert!(result);
     }
@@ -715,7 +796,7 @@ mod tests {
         let config = create_test_config();
         let mut client = MastodonClient::new(config);
         client.authenticated_user_id = Some("user123".to_string());
-        
+
         let toot = TootEvent {
             id: "123".to_string(),
             account: Account {
@@ -732,7 +813,7 @@ mod tests {
             url: None,
             visibility: "public".to_string(),
         };
-        
+
         let result = client.is_own_toot(&toot).unwrap();
         assert!(!result);
     }
@@ -741,7 +822,7 @@ mod tests {
     fn test_is_own_toot_no_authenticated_user() {
         let config = create_test_config();
         let client = MastodonClient::new(config);
-        
+
         let toot = TootEvent {
             id: "123".to_string(),
             account: Account {
@@ -758,10 +839,13 @@ mod tests {
             url: None,
             visibility: "public".to_string(),
         };
-        
+
         let result = client.is_own_toot(&toot);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MastodonError::UserVerificationFailed));
+        assert!(matches!(
+            result.unwrap_err(),
+            MastodonError::UserVerificationFailed
+        ));
     }
 
     #[test]
@@ -831,10 +915,10 @@ mod tests {
     async fn test_websocket_connection_and_message_parsing() {
         let server = MockWebSocketServer::new().await;
         let addr = server.local_addr();
-        
+
         // Add a test message to the server
         server.add_message(create_test_toot_event()).await;
-        
+
         // Start the server in a background task
         let server_handle = tokio::spawn(async move {
             server.run().await;
@@ -846,23 +930,28 @@ mod tests {
         // Create a client with a custom WebSocket URL pointing to our mock server
         let mut config = create_test_config();
         config.instance_url = format!("ws://127.0.0.1:{}", addr.port());
-        
+
         let mut client = MastodonClient::new(config);
         client.authenticated_user_id = Some("user123".to_string()); // Set authenticated user
 
         // Connect to the mock server
-        let streaming_url = format!("ws://127.0.0.1:{}/api/v1/streaming?access_token=test_token&stream=user", addr.port());
+        let streaming_url = format!(
+            "ws://127.0.0.1:{}/api/v1/streaming?access_token=test_token&stream=user",
+            addr.port()
+        );
         let url = Url::parse(&streaming_url).unwrap();
-        
-        let (ws_stream, _) = tokio_tungstenite::connect_async(url.as_str()).await.unwrap();
+
+        let (ws_stream, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .unwrap();
         client.websocket = Some(ws_stream);
 
         // Listen for a message
         let result = client.listen().await;
-        
+
         // Clean up
         server_handle.abort();
-        
+
         // Verify we received the expected toot
         assert!(result.is_ok());
         let toot = result.unwrap();
@@ -876,22 +965,20 @@ mod tests {
     #[test]
     fn test_error_recovery_integration() {
         // Test that MastodonError variants work with ErrorRecovery
-        let connection_error = AlternatorError::Mastodon(
-            MastodonError::ConnectionFailed("timeout".to_string())
-        );
+        let connection_error =
+            AlternatorError::Mastodon(MastodonError::ConnectionFailed("timeout".to_string()));
         assert!(ErrorRecovery::is_recoverable(&connection_error));
         assert_eq!(ErrorRecovery::retry_delay(&connection_error, 0), 1);
         assert_eq!(ErrorRecovery::max_retries(&connection_error), 10);
 
-        let rate_limit_error = AlternatorError::Mastodon(
-            MastodonError::RateLimitExceeded { retry_after: 120 }
-        );
+        let rate_limit_error =
+            AlternatorError::Mastodon(MastodonError::RateLimitExceeded { retry_after: 120 });
         assert!(ErrorRecovery::is_recoverable(&rate_limit_error));
         assert_eq!(ErrorRecovery::retry_delay(&rate_limit_error, 0), 120);
 
-        let auth_error = AlternatorError::Mastodon(
-            MastodonError::AuthenticationFailed("invalid token".to_string())
-        );
+        let auth_error = AlternatorError::Mastodon(MastodonError::AuthenticationFailed(
+            "invalid token".to_string(),
+        ));
         assert!(!ErrorRecovery::is_recoverable(&auth_error));
         assert!(ErrorRecovery::should_shutdown(&auth_error));
     }

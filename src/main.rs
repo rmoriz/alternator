@@ -1,15 +1,15 @@
 use clap::Parser;
 use std::path::PathBuf;
-use tracing::{info, error, debug, warn, Level};
+use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{self, EnvFilter};
 
+mod balance;
 mod config;
 mod error;
-mod mastodon;
-mod openrouter;
-mod media;
 mod language;
-mod balance;
+mod mastodon;
+mod media;
+mod openrouter;
 mod toot_handler;
 
 use crate::config::Config;
@@ -24,11 +24,11 @@ struct Cli {
     /// Path to configuration file
     #[arg(short, long)]
     config: Option<PathBuf>,
-    
+
     /// Set log level (error, warn, info, debug, trace)
     #[arg(long, value_name = "LEVEL")]
     log_level: Option<String>,
-    
+
     /// Enable verbose logging (equivalent to --log-level debug)
     #[arg(short, long)]
     verbose: bool,
@@ -44,7 +44,7 @@ fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
     } else {
         config.logging().level.as_deref().unwrap_or("info")
     };
-    
+
     // Validate log level
     let _level = match log_level.to_lowercase().as_str() {
         "error" => Level::ERROR,
@@ -53,19 +53,18 @@ fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
         "debug" => Level::DEBUG,
         "trace" => Level::TRACE,
         _ => {
-            return Err(AlternatorError::InvalidData(
-                format!("Invalid log level: {}. Valid levels are: error, warn, info, debug, trace", log_level)
-            ));
+            return Err(AlternatorError::InvalidData(format!(
+                "Invalid log level: {}. Valid levels are: error, warn, info, debug, trace",
+                log_level
+            )));
         }
     };
-    
+
     // Create environment filter with fallback
     let env_filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(log_level))
-        .map_err(|e| AlternatorError::InvalidData(
-            format!("Failed to create log filter: {}", e)
-        ))?;
-    
+        .map_err(|e| AlternatorError::InvalidData(format!("Failed to create log filter: {}", e)))?;
+
     // Initialize structured logging with timestamps and target information
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
@@ -75,7 +74,7 @@ fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
         .with_line_number(true)
         .with_level(true)
         .init();
-    
+
     debug!("Logging initialized with level: {}", log_level);
     Ok(())
 }
@@ -125,20 +124,20 @@ async fn handle_error(error: AlternatorError) -> Result<(), AlternatorError> {
             debug!("Error details: {:?}", error);
         }
     }
-    
+
     // Determine if we should shutdown
     if ErrorRecovery::should_shutdown(&error) {
         error!("Fatal error encountered, shutting down application");
         return Err(error);
     }
-    
+
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), AlternatorError> {
     let cli = Cli::parse();
-    
+
     // Load configuration first
     let config = match Config::load(cli.config.clone()) {
         Ok(config) => config,
@@ -150,25 +149,33 @@ async fn main() -> Result<(), AlternatorError> {
             return Err(AlternatorError::Shutdown);
         }
     };
-    
+
     // Initialize structured logging
     if let Err(e) = init_logging(&config, &cli) {
         eprintln!("Failed to initialize logging: {}", e);
         return Err(e);
     }
-    
+
     info!("Starting Alternator v{}", env!("CARGO_PKG_VERSION"));
     info!("Configuration loaded successfully");
     debug!("Configuration file path: {:?}", cli.config);
-    debug!("Log level: {}", config.logging().level.as_deref().unwrap_or("info"));
-    
+    debug!(
+        "Log level: {}",
+        config.logging().level.as_deref().unwrap_or("info")
+    );
+
     // Log configuration summary (without sensitive data)
     info!("Mastodon instance: {}", config.mastodon.instance_url);
     info!("OpenRouter model: {}", config.openrouter.model);
-    info!("Balance monitoring: {}", 
-        if config.balance().enabled.unwrap_or(true) { "enabled" } else { "disabled" }
+    info!(
+        "Balance monitoring: {}",
+        if config.balance().enabled.unwrap_or(true) {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
-    
+
     // Initialize and start main application loop
     match run_application(config).await {
         Ok(()) => {
@@ -185,15 +192,18 @@ async fn main() -> Result<(), AlternatorError> {
 /// Main application orchestration - coordinates all components
 async fn run_application(config: Config) -> Result<(), AlternatorError> {
     info!("Initializing application components");
-    
+
     // Initialize all components
     let mut mastodon_client = crate::mastodon::MastodonClient::new(config.mastodon.clone());
     let openrouter_client = crate::openrouter::OpenRouterClient::new(config.openrouter.clone());
-    let media_processor = crate::media::MediaProcessor::with_image_transformer(
-        crate::media::MediaConfig {
+    let media_processor =
+        crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
             max_size_mb: config.media().max_size_mb.unwrap_or(10) as f64,
             max_dimension: config.media().resize_max_dimension.unwrap_or(1024),
-            supported_formats: config.media().supported_formats.as_ref()
+            supported_formats: config
+                .media()
+                .supported_formats
+                .as_ref()
                 .unwrap_or(&vec![
                     "image/jpeg".to_string(),
                     "image/png".to_string(),
@@ -203,21 +213,20 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
                 .iter()
                 .cloned()
                 .collect(),
-        }
-    );
+        });
     let language_detector = crate::language::LanguageDetector::new();
     let mut balance_monitor = crate::balance::BalanceMonitor::new(
         config.balance().clone(),
-        crate::openrouter::OpenRouterClient::new(config.openrouter.clone())
+        crate::openrouter::OpenRouterClient::new(config.openrouter.clone()),
     );
-    
+
     // Perform startup validation
     info!("Performing startup validation");
     startup_validation(&mut mastodon_client, &openrouter_client).await?;
-    
+
     // Set up graceful shutdown handling
     let shutdown_signal = setup_shutdown_signal();
-    
+
     // Start balance monitoring in background if enabled
     let balance_task = if balance_monitor.is_enabled() {
         info!("Starting balance monitoring service");
@@ -231,7 +240,7 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
         info!("Balance monitoring is disabled");
         None
     };
-    
+
     // Start main toot processing loop
     info!("Starting main toot processing loop");
     let mut toot_handler = TootStreamHandler::new(
@@ -240,11 +249,9 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
         media_processor,
         language_detector,
     );
-    
-    let processing_task = tokio::spawn(async move {
-        toot_handler.start_processing().await
-    });
-    
+
+    let processing_task = tokio::spawn(async move { toot_handler.start_processing().await });
+
     // Wait for shutdown signal or task completion
     tokio::select! {
         _ = shutdown_signal => {
@@ -266,14 +273,14 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
             }
         }
     }
-    
+
     // Clean shutdown - stop background tasks
     if let Some(balance_task) = balance_task {
         info!("Stopping balance monitoring service");
         balance_task.abort();
         let _ = balance_task.await;
     }
-    
+
     info!("Application shutdown complete");
     Ok(())
 }
@@ -284,34 +291,48 @@ async fn startup_validation(
     openrouter_client: &crate::openrouter::OpenRouterClient,
 ) -> Result<(), AlternatorError> {
     info!("Validating Mastodon connectivity");
-    
+
     // Verify Mastodon credentials and get user info
     use crate::mastodon::MastodonStream;
-    let account = mastodon_client.verify_credentials().await
+    let account = mastodon_client
+        .verify_credentials()
+        .await
         .map_err(|e| AlternatorError::Mastodon(e))?;
-    
-    info!("✓ Mastodon connection validated - authenticated as: {} (@{})", 
-          account.display_name, account.acct);
-    
+
+    info!(
+        "✓ Mastodon connection validated - authenticated as: {} (@{})",
+        account.display_name, account.acct
+    );
+
     info!("Validating OpenRouter connectivity");
-    
+
     // Check OpenRouter account balance
-    let balance = openrouter_client.get_account_balance().await
+    let balance = openrouter_client
+        .get_account_balance()
+        .await
         .map_err(|e| AlternatorError::OpenRouter(e))?;
-    
+
     info!("✓ OpenRouter account balance: ${:.2}", balance);
-    
+
     // Verify configured model is available
-    let models = openrouter_client.list_models().await
+    let models = openrouter_client
+        .list_models()
+        .await
         .map_err(|e| AlternatorError::OpenRouter(e))?;
-    
-    info!("✓ OpenRouter model validation complete - {} models available", models.len());
-    
+
+    info!(
+        "✓ OpenRouter model validation complete - {} models available",
+        models.len()
+    );
+
     // Warn if balance is low
     if balance < 1.0 {
-        warn!("⚠️  OpenRouter balance is low (${:.2}) - consider topping up your account", balance);
+        warn!(
+            "⚠️  OpenRouter balance is low (${:.2}) - consider topping up your account",
+            balance
+        );
     }
-    
+
     info!("✓ All startup validations passed successfully");
     Ok(())
 }
@@ -319,14 +340,14 @@ async fn startup_validation(
 /// Set up graceful shutdown signal handling
 async fn setup_shutdown_signal() {
     use tokio::signal;
-    
+
     #[cfg(unix)]
     {
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
             .expect("Failed to register SIGTERM handler");
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
             .expect("Failed to register SIGINT handler");
-        
+
         tokio::select! {
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown");
@@ -336,7 +357,7 @@ async fn setup_shutdown_signal() {
             }
         }
     }
-    
+
     #[cfg(not(unix))]
     {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");

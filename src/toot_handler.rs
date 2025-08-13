@@ -1,10 +1,10 @@
+use crate::error::{AlternatorError, MastodonError};
+use crate::language::LanguageDetector;
+use crate::mastodon::{MastodonClient, MastodonStream, TootEvent};
+use crate::media::MediaProcessor;
+use crate::openrouter::OpenRouterClient;
 use std::collections::HashSet;
 use tracing::{debug, error, info, warn};
-use crate::error::{AlternatorError, MastodonError};
-use crate::mastodon::{TootEvent, MastodonStream, MastodonClient};
-use crate::openrouter::OpenRouterClient;
-use crate::media::MediaProcessor;
-use crate::language::LanguageDetector;
 
 /// Handler for processing incoming toot events from WebSocket stream
 pub struct TootStreamHandler {
@@ -35,13 +35,15 @@ impl TootStreamHandler {
     /// Start processing toot stream - main entry point
     pub async fn start_processing(&mut self) -> Result<(), AlternatorError> {
         info!("Starting toot stream processing");
-        
+
         // Connect to Mastodon WebSocket stream
-        self.mastodon_client.connect().await
+        self.mastodon_client
+            .connect()
+            .await
             .map_err(|e| AlternatorError::Mastodon(e))?;
-        
+
         info!("✓ Connected to Mastodon stream - listening for toots");
-        
+
         // Main processing loop
         loop {
             match self.listen_and_process().await {
@@ -51,11 +53,11 @@ impl TootStreamHandler {
                 }
                 Err(e) => {
                     error!("Error in toot processing loop: {}", e);
-                    
+
                     // Handle specific error types
                     match &e {
-                        AlternatorError::Mastodon(MastodonError::Disconnected(_)) |
-                        AlternatorError::Mastodon(MastodonError::ConnectionFailed(_)) => {
+                        AlternatorError::Mastodon(MastodonError::Disconnected(_))
+                        | AlternatorError::Mastodon(MastodonError::ConnectionFailed(_)) => {
                             warn!("Connection lost, will attempt to reconnect");
                             // The MastodonClient will handle reconnection automatically
                             continue;
@@ -81,9 +83,13 @@ impl TootStreamHandler {
                     debug!("Skipping already processed toot: {}", toot.id);
                     return Ok(());
                 }
-                
-                info!("Processing toot: {} (media: {})", toot.id, toot.media_attachments.len());
-                
+
+                info!(
+                    "Processing toot: {} (media: {})",
+                    toot.id,
+                    toot.media_attachments.len()
+                );
+
                 // Process the toot
                 match self.process_toot(&toot).await {
                     Ok(()) => {
@@ -93,19 +99,26 @@ impl TootStreamHandler {
                     Err(e) => {
                         // Log error but continue processing other toots
                         error!("Failed to process toot {}: {}", toot.id, e);
-                        
+
                         // Still mark as processed to avoid retry loops for non-recoverable errors
                         self.mark_as_processed(toot.id.clone());
-                        
+
                         // Return error for recoverable issues that should be handled at higher level
                         match &e {
-                            AlternatorError::Mastodon(MastodonError::RateLimitExceeded { .. }) |
-                            AlternatorError::OpenRouter(crate::error::OpenRouterError::RateLimitExceeded { .. }) => {
+                            AlternatorError::Mastodon(MastodonError::RateLimitExceeded {
+                                ..
+                            })
+                            | AlternatorError::OpenRouter(
+                                crate::error::OpenRouterError::RateLimitExceeded { .. },
+                            ) => {
                                 return Err(e);
                             }
                             _ => {
                                 // For other errors, log and continue
-                                warn!("Non-recoverable error processing toot {}, continuing: {}", toot.id, e);
+                                warn!(
+                                    "Non-recoverable error processing toot {}, continuing: {}",
+                                    toot.id, e
+                                );
                             }
                         }
                     }
@@ -120,7 +133,7 @@ impl TootStreamHandler {
                 return Err(AlternatorError::Mastodon(e));
             }
         }
-        
+
         Ok(())
     }
 
@@ -131,28 +144,45 @@ impl TootStreamHandler {
             debug!("Toot {} has no media attachments, skipping", toot.id);
             return Ok(());
         }
-        
+
         // Filter media that needs processing
-        let processable_media = self.media_processor.filter_processable_media(&toot.media_attachments);
-        
+        let processable_media = self
+            .media_processor
+            .filter_processable_media(&toot.media_attachments);
+
         if processable_media.is_empty() {
-            debug!("Toot {} has no processable media (all have descriptions or unsupported types)", toot.id);
+            debug!(
+                "Toot {} has no processable media (all have descriptions or unsupported types)",
+                toot.id
+            );
             return Ok(());
         }
-        
-        info!("Found {} processable media attachments in toot {}", processable_media.len(), toot.id);
-        
+
+        info!(
+            "Found {} processable media attachments in toot {}",
+            processable_media.len(),
+            toot.id
+        );
+
         // Detect language for prompt selection
         let detected_language = self.detect_toot_language(&toot.content)?;
-        let prompt_template = self.language_detector.get_prompt_template(&detected_language)
+        let prompt_template = self
+            .language_detector
+            .get_prompt_template(&detected_language)
             .map_err(|e| AlternatorError::Language(e))?;
-        
-        debug!("Using language '{}' with prompt template", detected_language);
-        
+
+        debug!(
+            "Using language '{}' with prompt template",
+            detected_language
+        );
+
         // Process each media attachment
         for media in processable_media {
-            info!("Processing media attachment: {} ({})", media.id, media.media_type);
-            
+            info!(
+                "Processing media attachment: {} ({})",
+                media.id, media.media_type
+            );
+
             // Check for race conditions before processing
             if let Err(e) = self.check_race_condition(&toot.id, &media.id).await {
                 match e {
@@ -161,43 +191,63 @@ impl TootStreamHandler {
                         continue;
                     }
                     _ => {
-                        warn!("Could not check race condition for media {}: {}", media.id, e);
+                        warn!(
+                            "Could not check race condition for media {}: {}",
+                            media.id, e
+                        );
                         // Continue processing but log the warning
                     }
                 }
             }
-            
+
             // Download and process media
-            let processed_media_data = match self.media_processor.process_media_for_analysis(media).await {
-                Ok(data) => data,
-                Err(e) => {
-                    error!("Failed to process media {}: {}", media.id, e);
-                    continue; // Skip this media but continue with others
-                }
-            };
-            
+            let processed_media_data =
+                match self.media_processor.process_media_for_analysis(media).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!("Failed to process media {}: {}", media.id, e);
+                        continue; // Skip this media but continue with others
+                    }
+                };
+
             // Generate description using OpenRouter
-            let description = match self.openrouter_client.describe_image(&processed_media_data, prompt_template).await {
+            let description = match self
+                .openrouter_client
+                .describe_image(&processed_media_data, prompt_template)
+                .await
+            {
                 Ok(desc) => desc,
                 Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
                     warn!("Token limit exceeded for media {}, skipping", media.id);
                     continue; // Skip this media but continue with others
                 }
                 Err(e) => {
-                    error!("Failed to generate description for media {}: {}", media.id, e);
+                    error!(
+                        "Failed to generate description for media {}: {}",
+                        media.id, e
+                    );
                     return Err(AlternatorError::OpenRouter(e));
                 }
             };
-            
-            info!("Generated description for media {}: {}", media.id, description);
-            
+
+            info!(
+                "Generated description for media {}: {}",
+                media.id, description
+            );
+
             // Update media description with final race condition check
-            match self.update_media_with_race_check(&toot.id, &media.id, &description).await {
+            match self
+                .update_media_with_race_check(&toot.id, &media.id, &description)
+                .await
+            {
                 Ok(()) => {
                     info!("✓ Updated description for media: {}", media.id);
                 }
                 Err(AlternatorError::Mastodon(MastodonError::RaceConditionDetected)) => {
-                    info!("Race condition detected when updating media {}, skipping", media.id);
+                    info!(
+                        "Race condition detected when updating media {}, skipping",
+                        media.id
+                    );
                     continue;
                 }
                 Err(e) => {
@@ -206,7 +256,7 @@ impl TootStreamHandler {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -222,22 +272,48 @@ impl TootStreamHandler {
     }
 
     /// Check for race conditions by retrieving current toot state
-    async fn check_race_condition(&self, toot_id: &str, media_id: &str) -> Result<(), AlternatorError> {
-        debug!("Checking for race conditions on toot {} media {}", toot_id, media_id);
-        
+    async fn check_race_condition(
+        &self,
+        toot_id: &str,
+        media_id: &str,
+    ) -> Result<(), AlternatorError> {
+        debug!(
+            "Checking for race conditions on toot {} media {}",
+            toot_id, media_id
+        );
+
         match self.mastodon_client.get_toot(toot_id).await {
             Ok(current_toot) => {
                 // Find the current state of this media attachment
-                if let Some(current_media) = current_toot.media_attachments.iter().find(|m| m.id == *media_id) {
-                    if current_media.description.is_some() && !current_media.description.as_ref().unwrap().trim().is_empty() {
-                        debug!("Media {} already has description, race condition detected", media_id);
-                        return Err(AlternatorError::Mastodon(MastodonError::RaceConditionDetected));
+                if let Some(current_media) = current_toot
+                    .media_attachments
+                    .iter()
+                    .find(|m| m.id == *media_id)
+                {
+                    if current_media.description.is_some()
+                        && !current_media
+                            .description
+                            .as_ref()
+                            .unwrap()
+                            .trim()
+                            .is_empty()
+                    {
+                        debug!(
+                            "Media {} already has description, race condition detected",
+                            media_id
+                        );
+                        return Err(AlternatorError::Mastodon(
+                            MastodonError::RaceConditionDetected,
+                        ));
                     }
                 }
                 Ok(())
             }
             Err(e) => {
-                warn!("Could not retrieve current toot state for race condition check: {}", e);
+                warn!(
+                    "Could not retrieve current toot state for race condition check: {}",
+                    e
+                );
                 Err(AlternatorError::Mastodon(e))
             }
         }
@@ -245,16 +321,18 @@ impl TootStreamHandler {
 
     /// Update media description with a final race condition check
     async fn update_media_with_race_check(
-        &self, 
-        toot_id: &str, 
-        media_id: &str, 
-        description: &str
+        &self,
+        toot_id: &str,
+        media_id: &str,
+        description: &str,
     ) -> Result<(), AlternatorError> {
         // Final race condition check before update
         self.check_race_condition(toot_id, media_id).await?;
-        
+
         // Update media description
-        self.mastodon_client.update_media(media_id, description).await
+        self.mastodon_client
+            .update_media(media_id, description)
+            .await
             .map_err(|e| AlternatorError::Mastodon(e))
     }
 
@@ -266,16 +344,20 @@ impl TootStreamHandler {
     /// Mark a toot as processed to prevent duplicate processing
     fn mark_as_processed(&mut self, toot_id: String) {
         self.processed_toots.insert(toot_id);
-        
+
         // Prevent memory growth by limiting the size of processed toots set
         if self.processed_toots.len() > 10000 {
             // Remove oldest entries (this is a simple approach, could be improved with LRU)
             let excess = self.processed_toots.len() - 5000;
-            let to_remove: Vec<String> = self.processed_toots.iter().take(excess).cloned().collect();
+            let to_remove: Vec<String> =
+                self.processed_toots.iter().take(excess).cloned().collect();
             for id in to_remove {
                 self.processed_toots.remove(&id);
             }
-            debug!("Cleaned up processed toots cache, now contains {} entries", self.processed_toots.len());
+            debug!(
+                "Cleaned up processed toots cache, now contains {} entries",
+                self.processed_toots.len()
+            );
         }
     }
 
@@ -303,8 +385,8 @@ pub struct ProcessingStats {
 mod tests {
     use super::*;
     use crate::config::{MastodonConfig, OpenRouterConfig};
-    use crate::media::MediaConfig;
     use crate::mastodon::{Account, MediaAttachment};
+    use crate::media::MediaConfig;
     use chrono::Utc;
     use std::collections::HashSet;
 
@@ -344,7 +426,11 @@ mod tests {
         }
     }
 
-    fn create_test_media(id: &str, media_type: &str, description: Option<String>) -> MediaAttachment {
+    fn create_test_media(
+        id: &str,
+        media_type: &str,
+        description: Option<String>,
+    ) -> MediaAttachment {
         MediaAttachment {
             id: id.to_string(),
             media_type: media_type.to_string(),
@@ -435,7 +521,9 @@ mod tests {
         );
 
         // Test with English text
-        let result = handler.detect_toot_language("Hello world, this is a test").unwrap();
+        let result = handler
+            .detect_toot_language("Hello world, this is a test")
+            .unwrap();
         assert_eq!(result, "en");
 
         // Test with empty text (should fallback to English)
@@ -443,7 +531,9 @@ mod tests {
         assert_eq!(result, "en");
 
         // Test with German text
-        let result = handler.detect_toot_language("Das ist ein Test mit deutschen Wörtern").unwrap();
+        let result = handler
+            .detect_toot_language("Das ist ein Test mit deutschen Wörtern")
+            .unwrap();
         assert_eq!(result, "de");
     }
 

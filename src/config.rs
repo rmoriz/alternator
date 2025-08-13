@@ -125,7 +125,7 @@ impl Config {
 
         // Apply environment variable overrides
         config.apply_env_overrides()?;
-        
+
         // Apply defaults for optional sections
         if config.media.is_none() {
             config.media = Some(MediaConfig::default());
@@ -176,7 +176,9 @@ impl Config {
         }
         if let Ok(user_stream) = env::var("ALTERNATOR_MASTODON_USER_STREAM") {
             self.mastodon.user_stream = Some(user_stream.parse().map_err(|_| {
-                ConfigError::InvalidValue("ALTERNATOR_MASTODON_USER_STREAM must be true or false".to_string())
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MASTODON_USER_STREAM must be true or false".to_string(),
+                )
             })?);
         }
 
@@ -192,7 +194,9 @@ impl Config {
         }
         if let Ok(max_tokens) = env::var("ALTERNATOR_OPENROUTER_MAX_TOKENS") {
             self.openrouter.max_tokens = Some(max_tokens.parse().map_err(|_| {
-                ConfigError::InvalidValue("ALTERNATOR_OPENROUTER_MAX_TOKENS must be a valid number".to_string())
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_OPENROUTER_MAX_TOKENS must be a valid number".to_string(),
+                )
             })?);
         }
 
@@ -200,13 +204,17 @@ impl Config {
         if let Ok(enabled) = env::var("ALTERNATOR_BALANCE_ENABLED") {
             let balance = self.balance.get_or_insert_with(BalanceConfig::default);
             balance.enabled = Some(enabled.parse().map_err(|_| {
-                ConfigError::InvalidValue("ALTERNATOR_BALANCE_ENABLED must be true or false".to_string())
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_BALANCE_ENABLED must be true or false".to_string(),
+                )
             })?);
         }
         if let Ok(threshold) = env::var("ALTERNATOR_BALANCE_THRESHOLD") {
             let balance = self.balance.get_or_insert_with(BalanceConfig::default);
             balance.threshold = Some(threshold.parse().map_err(|_| {
-                ConfigError::InvalidValue("ALTERNATOR_BALANCE_THRESHOLD must be a valid number".to_string())
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_BALANCE_THRESHOLD must be a valid number".to_string(),
+                )
             })?);
         }
         if let Ok(check_time) = env::var("ALTERNATOR_BALANCE_CHECK_TIME") {
@@ -265,7 +273,10 @@ impl Config {
 
     /// Get the OpenRouter base URL with default fallback
     pub fn openrouter_base_url(&self) -> &str {
-        self.openrouter.base_url.as_deref().unwrap_or("https://openrouter.ai/api/v1")
+        self.openrouter
+            .base_url
+            .as_deref()
+            .unwrap_or("https://openrouter.ai/api/v1")
     }
 
     /// Get the media configuration with defaults
@@ -294,7 +305,11 @@ mod tests {
         let media = MediaConfig::default();
         assert_eq!(media.max_size_mb, Some(10));
         assert_eq!(media.resize_max_dimension, Some(1024));
-        assert!(media.supported_formats.as_ref().unwrap().contains(&"image/jpeg".to_string()));
+        assert!(media
+            .supported_formats
+            .as_ref()
+            .unwrap()
+            .contains(&"image/jpeg".to_string()));
 
         let balance = BalanceConfig::default();
         assert_eq!(balance.enabled, Some(true));
@@ -326,7 +341,10 @@ mod tests {
 
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("mastodon.instance_url"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("mastodon.instance_url"));
     }
 
     #[test]
@@ -434,20 +452,26 @@ level = "info"
 "#;
 
         let config: Config = toml::from_str(toml_content).unwrap();
-        
+
         assert_eq!(config.mastodon.instance_url, "https://mastodon.social");
         assert_eq!(config.mastodon.access_token, "your_token_here");
         assert_eq!(config.mastodon.user_stream, Some(true));
-        
+
         assert_eq!(config.openrouter.api_key, "your_api_key_here");
         assert_eq!(config.openrouter.model, "anthropic/claude-3-haiku");
-        assert_eq!(config.openrouter.base_url, Some("https://openrouter.ai/api/v1".to_string()));
+        assert_eq!(
+            config.openrouter.base_url,
+            Some("https://openrouter.ai/api/v1".to_string())
+        );
         assert_eq!(config.openrouter.max_tokens, Some(150));
-        
+
         assert_eq!(config.media.as_ref().unwrap().max_size_mb, Some(10));
         assert_eq!(config.balance.as_ref().unwrap().enabled, Some(true));
         assert_eq!(config.balance.as_ref().unwrap().threshold, Some(5.0));
-        assert_eq!(config.logging.as_ref().unwrap().level, Some("info".to_string()));
+        assert_eq!(
+            config.logging.as_ref().unwrap().level,
+            Some("info".to_string())
+        );
     }
 
     #[test]
