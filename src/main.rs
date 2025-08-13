@@ -10,9 +10,11 @@ mod openrouter;
 mod media;
 mod language;
 mod balance;
+mod toot_handler;
 
 use crate::config::Config;
 use crate::error::{AlternatorError, ErrorRecovery};
+use crate::toot_handler::TootStreamHandler;
 
 #[derive(Parser)]
 #[command(name = "alternator")]
@@ -232,8 +234,15 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
     
     // Start main toot processing loop
     info!("Starting main toot processing loop");
+    let mut toot_handler = TootStreamHandler::new(
+        mastodon_client,
+        openrouter_client,
+        media_processor,
+        language_detector,
+    );
+    
     let processing_task = tokio::spawn(async move {
-        toot_processing_loop(mastodon_client, openrouter_client, media_processor, language_detector).await
+        toot_handler.start_processing().await
     });
     
     // Wait for shutdown signal or task completion
@@ -304,177 +313,6 @@ async fn startup_validation(
     }
     
     info!("✓ All startup validations passed successfully");
-    Ok(())
-}
-
-/// Main toot processing loop that handles incoming toots
-async fn toot_processing_loop(
-    mut mastodon_client: crate::mastodon::MastodonClient,
-    openrouter_client: crate::openrouter::OpenRouterClient,
-    media_processor: crate::media::MediaProcessor,
-    language_detector: crate::language::LanguageDetector,
-) -> Result<(), AlternatorError> {
-    use crate::mastodon::MastodonStream;
-    
-    info!("Connecting to Mastodon WebSocket stream");
-    mastodon_client.connect().await
-        .map_err(|e| AlternatorError::Mastodon(e))?;
-    
-    info!("✓ Connected to Mastodon stream - listening for toots");
-    
-    let mut processed_toots = std::collections::HashSet::new();
-    
-    loop {
-        // Listen for toot events
-        match mastodon_client.listen().await {
-            Ok(Some(toot)) => {
-                // Check if we've already processed this toot
-                if processed_toots.contains(&toot.id) {
-                    debug!("Skipping already processed toot: {}", toot.id);
-                    continue;
-                }
-                
-                info!("Processing toot: {} (media: {})", toot.id, toot.media_attachments.len());
-                
-                // Process the toot
-                match process_toot(&toot, &mastodon_client, &openrouter_client, &media_processor, &language_detector).await {
-                    Ok(()) => {
-                        processed_toots.insert(toot.id.clone());
-                        info!("✓ Successfully processed toot: {}", toot.id);
-                    }
-                    Err(e) => {
-                        // Log error but continue processing other toots
-                        error!("Failed to process toot {}: {}", toot.id, e);
-                        
-                        // Still mark as processed to avoid retry loops
-                        processed_toots.insert(toot.id.clone());
-                        
-                        // Handle specific error types
-                        if let Err(handle_err) = handle_error(e).await {
-                            // If handle_error returns an error, it means we should shutdown
-                            return Err(handle_err);
-                        }
-                    }
-                }
-            }
-            Ok(None) => {
-                // No toot received, continue listening
-                continue;
-            }
-            Err(e) => {
-                error!("Error listening for toots: {}", e);
-                
-                // Handle the error and determine if we should continue
-                if let Err(handle_err) = handle_error(AlternatorError::Mastodon(e)).await {
-                    return Err(handle_err);
-                }
-                
-                // If error is recoverable, the connection will be re-established automatically
-                continue;
-            }
-        }
-    }
-}
-
-/// Process a single toot - check for media, generate descriptions, and update
-async fn process_toot(
-    toot: &crate::mastodon::TootEvent,
-    mastodon_client: &crate::mastodon::MastodonClient,
-    openrouter_client: &crate::openrouter::OpenRouterClient,
-    media_processor: &crate::media::MediaProcessor,
-    language_detector: &crate::language::LanguageDetector,
-) -> Result<(), AlternatorError> {
-    use crate::mastodon::MastodonStream;
-    
-    // Check if toot has media attachments
-    if toot.media_attachments.is_empty() {
-        debug!("Toot {} has no media attachments, skipping", toot.id);
-        return Ok(());
-    }
-    
-    // Filter media that needs processing
-    let processable_media = media_processor.filter_processable_media(&toot.media_attachments);
-    
-    if processable_media.is_empty() {
-        debug!("Toot {} has no processable media (all have descriptions or unsupported types)", toot.id);
-        return Ok(());
-    }
-    
-    info!("Found {} processable media attachments in toot {}", processable_media.len(), toot.id);
-    
-    // Detect language for prompt selection
-    let detected_language = language_detector.detect_language(&toot.content)
-        .unwrap_or_else(|e| {
-            warn!("Language detection failed: {}, defaulting to English", e);
-            "en".to_string()
-        });
-    
-    let prompt_template = language_detector.get_prompt_template(&detected_language)
-        .map_err(|e| AlternatorError::Language(e))?;
-    
-    debug!("Using language '{}' with prompt template", detected_language);
-    
-    // Process each media attachment
-    for media in processable_media {
-        info!("Processing media attachment: {} ({})", media.id, media.media_type);
-        
-        // Check for race conditions before processing
-        match mastodon_client.get_toot(&toot.id).await {
-            Ok(current_toot) => {
-                // Find the current state of this media attachment
-                if let Some(current_media) = current_toot.media_attachments.iter().find(|m| m.id == media.id) {
-                    if current_media.description.is_some() && !current_media.description.as_ref().unwrap().trim().is_empty() {
-                        info!("Media {} already has description (race condition detected), skipping", media.id);
-                        continue;
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("Could not check current toot state for race condition: {}", e);
-                // Continue processing but log the warning
-            }
-        }
-        
-        // Download and process media
-        let processed_media_data = match media_processor.process_media_for_analysis(media).await {
-            Ok(data) => data,
-            Err(e) => {
-                error!("Failed to process media {}: {}", media.id, e);
-                continue; // Skip this media but continue with others
-            }
-        };
-        
-        // Generate description using OpenRouter
-        let description = match openrouter_client.describe_image(&processed_media_data, prompt_template).await {
-            Ok(desc) => desc,
-            Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
-                warn!("Token limit exceeded for media {}, skipping", media.id);
-                continue; // Skip this media but continue with others
-            }
-            Err(e) => {
-                error!("Failed to generate description for media {}: {}", media.id, e);
-                return Err(AlternatorError::OpenRouter(e));
-            }
-        };
-        
-        info!("Generated description for media {}: {}", media.id, description);
-        
-        // Update media description
-        match mastodon_client.update_media(&media.id, &description).await {
-            Ok(()) => {
-                info!("✓ Updated description for media: {}", media.id);
-            }
-            Err(crate::error::MastodonError::RaceConditionDetected) => {
-                info!("Race condition detected when updating media {}, skipping", media.id);
-                continue;
-            }
-            Err(e) => {
-                error!("Failed to update media description for {}: {}", media.id, e);
-                return Err(AlternatorError::Mastodon(e));
-            }
-        }
-    }
-    
     Ok(())
 }
 

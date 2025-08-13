@@ -5,3 +5,4 @@ pub mod openrouter;
 pub mod media;
 pub mod language;
 pub mod balance;
+pub mod toot_handler;
