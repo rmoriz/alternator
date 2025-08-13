@@ -130,12 +130,6 @@ jobs:
           - target: aarch64-unknown-linux-musl
             artifact_name: alternator
             docker_arch: linux-arm64
-          - target: x86_64-apple-darwin
-            artifact_name: alternator
-            docker_arch: darwin-amd64
-          - target: aarch64-apple-darwin
-            artifact_name: alternator
-            docker_arch: darwin-arm64
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
