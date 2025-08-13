@@ -1,3 +1,5 @@
+![Alternator Logo](alternator.webp)
+
 # Alternator
 
 Automatically adds descriptions to media attachments in Mastodon toots using AI-powered image analysis.
