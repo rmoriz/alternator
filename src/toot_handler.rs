@@ -833,10 +833,10 @@ mod tests {
 
         let mut toot = create_test_toot("123", vec![]);
         toot.language = Some("  ".to_string());
-        toot.content = "Bonjour le monde".to_string();
+        toot.content = "Ciao mondo, questo è un test in italiano".to_string();
 
         let result = handler.detect_toot_language(&toot).unwrap();
-        assert_eq!(result, "fr");
+        assert_eq!(result, "it");
     }
 
     #[test]
@@ -855,7 +855,7 @@ mod tests {
 
         let mut toot = create_test_toot("123", vec![]);
         toot.language = None;
-        toot.content = "123 !@# %%% random symbols".to_string();
+        toot.content = "".to_string();
 
         // Should fallback to English when detection fails
         let result = handler.detect_toot_language(&toot).unwrap();

@@ -366,7 +366,6 @@ async fn setup_shutdown_signal() {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
