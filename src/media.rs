@@ -118,9 +118,33 @@ impl ImageTransformer {
 
 impl MediaTransformer for ImageTransformer {
     fn is_supported(&self, media_type: &str) -> bool {
-        self.config
-            .supported_formats
-            .contains(&media_type.to_lowercase())
+        let media_type_lower = media_type.to_lowercase();
+
+        // Check if it's already a MIME type that we support
+        if self.config.supported_formats.contains(&media_type_lower) {
+            return true;
+        }
+
+        // Handle Mastodon API format where type is just "image", "video", etc.
+        // For "image" type, we support it if we support any image format
+        match media_type_lower.as_str() {
+            "image" => self
+                .config
+                .supported_formats
+                .iter()
+                .any(|f| f.starts_with("image/")),
+            "video" => self
+                .config
+                .supported_formats
+                .iter()
+                .any(|f| f.starts_with("video/")),
+            "audio" => self
+                .config
+                .supported_formats
+                .iter()
+                .any(|f| f.starts_with("audio/")),
+            _ => false,
+        }
     }
 
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError> {
@@ -349,7 +373,7 @@ mod tests {
     fn test_image_transformer_is_supported() {
         let transformer = ImageTransformer::with_default_config();
 
-        // Supported formats
+        // Supported MIME type formats
         assert!(transformer.is_supported("image/jpeg"));
         assert!(transformer.is_supported("image/jpg"));
         assert!(transformer.is_supported("image/png"));
@@ -360,11 +384,18 @@ mod tests {
         assert!(transformer.is_supported("IMAGE/JPEG"));
         assert!(transformer.is_supported("Image/PNG"));
 
+        // Mastodon API format (type field values)
+        assert!(transformer.is_supported("image"));
+        assert!(transformer.is_supported("IMAGE"));
+        assert!(transformer.is_supported("Image"));
+
         // Unsupported formats
         assert!(!transformer.is_supported("video/mp4"));
         assert!(!transformer.is_supported("audio/mp3"));
         assert!(!transformer.is_supported("text/plain"));
         assert!(!transformer.is_supported("application/pdf"));
+        assert!(!transformer.is_supported("video"));
+        assert!(!transformer.is_supported("audio"));
     }
 
     #[test]
