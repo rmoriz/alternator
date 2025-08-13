@@ -292,12 +292,13 @@ impl MastodonClient {
         let client = self.clone();
 
         tokio::spawn(async move {
-            // Initial delay to let Mastodon process the status update
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            // Initial delay to let Mastodon process the status update (increased from 5s to 10s)
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
             let mut retry_count = 0;
             const MAX_RETRIES: u32 = 3;
-            const RETRY_DELAY_BASE: u64 = 2; // seconds
+            // Exponential backoff: 10s, 20s, 40s
+            const RETRY_DELAYS: [u64; 3] = [10, 20, 40];
 
             while retry_count < MAX_RETRIES {
                 let mut any_currently_used = false;
@@ -328,7 +329,7 @@ impl MastodonClient {
 
                 retry_count += 1;
                 if retry_count < MAX_RETRIES {
-                    let delay = RETRY_DELAY_BASE.pow(retry_count);
+                    let delay = RETRY_DELAYS[retry_count as usize - 1];
                     debug!(
                         "Retrying media cleanup in {} seconds (attempt {}/{})",
                         delay,
