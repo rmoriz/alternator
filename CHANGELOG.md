@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Upgraded Docker base image to Debian Trixie (13)** - Updated from `debian:bookworm-slim` to `debian:trixie-slim` for latest security updates and improvements
+- **Removed libssl3 dependency from Docker images** - No longer needed since we use rustls instead of OpenSSL for TLS
 
 ## [0.1.1] - 2025-08-13
 

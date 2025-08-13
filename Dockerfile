@@ -28,7 +28,6 @@ FROM debian:trixie-slim
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user with same UID as builder stage
