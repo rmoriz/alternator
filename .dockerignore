@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Documentation
+*.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+target/
+Cargo.lock
+
+# Test files
+tests/
+
+# Configuration examples
+*.toml.example
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
