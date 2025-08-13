@@ -1,0 +1,24 @@
+name: Container Cleanup
+
+on:
+  schedule:
+    # Run every Sunday at 02:00 UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  cleanup:
+    name: Clean up untagged container images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Delete untagged images
+      uses: actions/delete-package-versions@v5
+      with:
+        package-name: 'alternator'
+        package-type: 'container'
+        delete-only-untagged-versions: true
+        min-versions-to-keep: 5
+        token: ${{ secrets.GITHUB_TOKEN }}

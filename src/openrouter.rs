@@ -543,8 +543,8 @@ impl OpenRouterClient {
             ));
         }
 
-        // Ensure description respects character limit (200 chars as per prompt templates)
-        const MAX_DESCRIPTION_LENGTH: usize = 200;
+        // Ensure description respects character limit (1500 chars as per prompt templates)
+        const MAX_DESCRIPTION_LENGTH: usize = 1500;
         let final_description = if description.len() > MAX_DESCRIPTION_LENGTH {
             warn!(
                 "Description too long ({} chars), truncating to {} chars",
