@@ -28,5 +28,15 @@
 - **MANDATORY**: Before ANY commit: ALL tests must pass, ALL lint must pass, ALL typecheck must pass. NO EXCEPTIONS.
 - **CRITICAL**: Every change MUST be committed to git with a descriptive commit message
 - **CRITICAL**: Every change MUST be pushed to GitHub after committing
+- **CRITICAL**: All changes MUST be tested and committed to git before the task is done. MUST. Mandatory.
 - Do NOT add Co-Authored-By: Claude <noreply@anthropic.com> to commit messages
 - Commit changes with useful description explaining why things have changed
+- do NOT add Co-Authored-By: Claude <noreply@anthropic.com> to commit messages
+- release notes should be added to git and pushed
+- commit changes with a useful description why things have changed
+
+## Docker & CI/CD
+- **Docker Images**: Available at `ghcr.io/rmoriz/alternator` 
+- **Optimized Builds**: Use `Dockerfile.optimized` for production builds with pre-built binaries
+- **Multi-arch Support**: Linux AMD64 and ARM64 platforms supported
+- **CI/CD**: Automated builds on main/develop branches, releases on tags
