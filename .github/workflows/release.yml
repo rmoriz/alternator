@@ -101,22 +101,22 @@ jobs:
     - name: Install cross-compilation tools (Linux ARM64)
       if: matrix.target == 'aarch64-unknown-linux-gnu'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu
-
-    - name: Configure cross-compilation environment
-      if: matrix.target == 'aarch64-unknown-linux-gnu'
-      run: |
-        echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+        cargo install cross --git https://github.com/cross-rs/cross
 
     - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }}
+      run: |
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+          cross build --release --target ${{ matrix.target }}
+        else
+          cargo build --release --target ${{ matrix.target }}
+        fi
 
     - name: Strip binary (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: |
         if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          # cross tool creates binaries that are already optimized
+          ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         else
           strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         fi
