@@ -30,3 +30,4 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 async-trait = "0.1"
+tempfile = "3.8"

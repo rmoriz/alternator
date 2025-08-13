@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use image::{ImageFormat, DynamicImage, GenericImageView, codecs::jpeg::JpegEncoder, codecs::png::PngEncoder};
 use serde::{Deserialize, Serialize};
 use crate::error::MediaError;
+use crate::mastodon::MediaAttachment;
 
 /// Supported image formats for processing
 const SUPPORTED_IMAGE_FORMATS: &[&str] = &[
@@ -18,43 +19,9 @@ const DEFAULT_MAX_DIMENSION: u32 = 1024;
 /// Maximum file size in MB for processing
 const DEFAULT_MAX_SIZE_MB: f64 = 10.0;
 
-/// Media attachment data structure from Mastodon API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MediaAttachment {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub media_type: String,
-    pub url: String,
-    pub preview_url: Option<String>,
-    pub remote_url: Option<String>,
-    pub description: Option<String>,
-    pub blurhash: Option<String>,
-    pub meta: Option<MediaMeta>,
-}
+// MediaAttachment is imported from crate::mastodon
 
-/// Media metadata information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MediaMeta {
-    pub original: Option<MediaDimensions>,
-    pub small: Option<MediaDimensions>,
-    pub focus: Option<MediaFocus>,
-}
-
-/// Media dimensions information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MediaDimensions {
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub size: Option<String>,
-    pub aspect: Option<f64>,
-}
-
-/// Media focus point for cropping
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MediaFocus {
-    pub x: f64,
-    pub y: f64,
-}
+// MediaMeta, MediaDimensions are imported from crate::mastodon
 
 /// Configuration for media processing
 #[derive(Debug, Clone)]
@@ -332,9 +299,7 @@ mod tests {
             media_type: media_type.to_string(),
             url: format!("https://example.com/media/{}", id),
             preview_url: None,
-            remote_url: None,
             description,
-            blurhash: None,
             meta: None,
         }
     }
@@ -502,18 +467,15 @@ mod tests {
             media_type: "image/jpeg".to_string(),
             url: "https://example.com/image.jpg".to_string(),
             preview_url: Some("https://example.com/preview.jpg".to_string()),
-            remote_url: None,
             description: Some("A test image".to_string()),
-            blurhash: Some("LEHV6nWB2yk8pyo0adR*.7kCMdnj".to_string()),
-            meta: Some(MediaMeta {
-                original: Some(MediaDimensions {
+            meta: Some(crate::mastodon::MediaMeta {
+                original: Some(crate::mastodon::MediaDimensions {
                     width: Some(1920),
                     height: Some(1080),
                     size: Some("1920x1080".to_string()),
                     aspect: Some(1.777777777777778),
                 }),
                 small: None,
-                focus: Some(MediaFocus { x: 0.0, y: 0.0 }),
             }),
         };
         

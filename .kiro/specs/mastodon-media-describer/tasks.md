@@ -63,7 +63,7 @@
   - Commit changes: "Implement Mastodon WebSocket client with reconnection and API methods"
   - _Requirements: 1.2, 1.3, 1.4, 2.1, 2.2, 2.5, 11.1_
 
-- [-] 8. Implement balance monitoring system
+- [x] 8. Implement balance monitoring system
   - Create BalanceMonitor with configurable daily checking (default noon)
   - Add threshold comparison logic (default $5) with configurable values
   - Implement direct message sending when balance is below threshold
@@ -72,7 +72,7 @@
   - Commit changes: "Add OpenRouter balance monitoring with configurable notifications"
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 9. Build main application orchestration
+- [-] 9. Build main application orchestration
   - Create main application loop that coordinates all components
   - Implement graceful shutdown handling for WebSocket and ongoing operations
   - Add startup validation for both Mastodon and OpenRouter connectivity
