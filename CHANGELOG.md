@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Updated prompt templates for better length management** - LLM now manages total response length (description + attribution) within 1500 characters
 - **Added localized AI attribution to all descriptions** - Each description now ends with a note about AI generation including the model name in the appropriate language
+- **Increased default max_tokens to 1500** - Better alignment with description length limits and improved response quality
 
 ### Enhanced
-- **Comprehensive multi-language AI attribution support** - Attribution notes now available in 38 languages:
+- **Comprehensive multi-language AI attribution support** - Attribution notes now available in 39 languages:
   - **Western European**: English, German, French, Spanish, Italian, Portuguese, Dutch
-  - **Germanic variants**: Swiss German (Schweizerdeutsch)
+  - **Germanic variants**: Swiss German (Schweizerdeutsch), Low German (Niederdeutsch)
   - **Nordic**: Danish, Swedish, Norwegian, Icelandic
   - **Celtic**: Scottish Gaelic
   - **Slavic**: Polish, Czech, Slovak, Slovenian, Croatian, Bosnian, Serbian, Russian, Bulgarian, Ukrainian

@@ -162,6 +162,12 @@ impl LanguageDetector {
             "Mach en churze, beschribendi Alt-Text für das Bild. Konzentriere di uf wichtigi visuelli Element, Handlige und Kontext, wo sehbehinderte Nutzer würde hälfe. Sig spezifisch und objektiv. Beende dini Beschribig mit ' — die Bildbeschribig isch vo KI gmacht worde: {model}' wo {model} de Name vom KI-Modell isch. Halt d GSAMTI Antwort (Beschribig + Quälleaagab) under 1500 Zeiche. Antworte NUR mit em Beschribigtext inklusive Quälleaagab.".to_string()
         );
 
+        // Low German (Niederdeutsch) template
+        prompt_templates.insert(
+            "nds".to_string(),
+            "Maak en korte, beschrievende Alt-Text för dit Bild. Konzentreert ju op wichtige visuelle Elementen, Handlungen un Kontext, de blinde un sehbehinderte Lüüd helpen deit. Weest spezifisch un objektiv. Beendt jue Beschrievung mit ' — disse Bildbeschrievung is von KI maakt worrn: {model}' wo {model} de Name von't KI-Modell is. Holt de HELE Antwoort (Beschrievung + Toschrieven) ünner 1500 Teken. Antwoordt BLOTS mit den beschrievenden Text inklusive Toschrieven.".to_string()
+        );
+
         // Slovak template
         prompt_templates.insert(
             "sk".to_string(),

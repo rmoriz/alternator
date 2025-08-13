@@ -115,7 +115,7 @@ impl Config {
                     api_key: String::new(),
                     model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                     base_url: None,
-                    max_tokens: None,
+                    max_tokens: Some(1500),
                 },
                 media: None,
                 balance: None,
@@ -436,7 +436,7 @@ user_stream = true
 api_key = "your_api_key_here"
 model = "mistralai/mistral-small-3.2-24b-instruct:free"
 base_url = "https://openrouter.ai/api/v1"
-max_tokens = 150
+max_tokens = 1500
 
 [media]
 max_size_mb = 10
@@ -467,7 +467,7 @@ level = "info"
             config.openrouter.base_url,
             Some("https://openrouter.ai/api/v1".to_string())
         );
-        assert_eq!(config.openrouter.max_tokens, Some(150));
+        assert_eq!(config.openrouter.max_tokens, Some(1500));
 
         assert_eq!(config.media.as_ref().unwrap().max_size_mb, Some(10));
         assert_eq!(config.balance.as_ref().unwrap().enabled, Some(true));

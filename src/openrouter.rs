@@ -291,7 +291,7 @@ impl OpenRouterClient {
                     && error_msg.to_lowercase().contains("limit")
                 {
                     // Extract token information if available
-                    let max_tokens = self.config.max_tokens.unwrap_or(150);
+                    let max_tokens = self.config.max_tokens.unwrap_or(1500);
                     return Err(OpenRouterError::TokenLimitExceeded {
                         tokens_used: max_tokens,
                         max_tokens,
@@ -373,8 +373,8 @@ impl OpenRouterClient {
                     // Don't retry token limit errors - this is a configuration issue
                     warn!("Token limit exceeded - skipping this request");
                     return Err(OpenRouterError::TokenLimitExceeded {
-                        tokens_used: self.config.max_tokens.unwrap_or(150),
-                        max_tokens: self.config.max_tokens.unwrap_or(150),
+                        tokens_used: self.config.max_tokens.unwrap_or(1500),
+                        max_tokens: self.config.max_tokens.unwrap_or(1500),
                     });
                 }
                 Err(OpenRouterError::AuthenticationFailed) => {
