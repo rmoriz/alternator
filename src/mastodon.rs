@@ -77,13 +77,48 @@ pub struct MastodonClient {
     authenticated_user_id: Option<String>,
 }
 
+impl Clone for MastodonClient {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            http_client: self.http_client.clone(),
+            websocket: None, // WebSocket connections can't be cloned
+            reconnect_attempts: self.reconnect_attempts,
+            authenticated_user_id: self.authenticated_user_id.clone(),
+        }
+    }
+}
+
 /// Trait for Mastodon streaming operations
 #[allow(async_fn_in_trait)] // Internal trait for dependency injection in tests
 pub trait MastodonStream {
     async fn connect(&mut self) -> Result<(), MastodonError>;
     async fn listen(&mut self) -> Result<Option<TootEvent>, MastodonError>;
     async fn get_toot(&self, toot_id: &str) -> Result<TootEvent, MastodonError>;
-    async fn update_media(&self, media_id: &str, description: &str) -> Result<(), MastodonError>;
+    #[allow(dead_code)] // Kept for backward compatibility in trait
+    async fn update_media(
+        &self,
+        toot_id: &str,
+        media_id: &str,
+        description: &str,
+    ) -> Result<(), MastodonError>;
+    async fn update_multiple_media(
+        &self,
+        toot_id: &str,
+        media_updates: Vec<(String, String)>,
+    ) -> Result<(), MastodonError>;
+    async fn create_media_attachment(
+        &self,
+        image_data: Vec<u8>,
+        description: &str,
+        filename: &str,
+    ) -> Result<String, MastodonError>;
+    async fn recreate_media_with_descriptions(
+        &self,
+        toot_id: &str,
+        media_recreations: Vec<(Vec<u8>, String)>,
+        original_media_ids: Vec<String>,
+    ) -> Result<(), MastodonError>;
     async fn send_dm(&self, message: &str) -> Result<(), MastodonError>;
     async fn verify_credentials(&mut self) -> Result<Account, MastodonError>;
 }
@@ -241,6 +276,159 @@ impl MastodonClient {
             Some(user_id) => Ok(toot.account.id == *user_id),
             None => Err(MastodonError::UserVerificationFailed),
         }
+    }
+
+    /// Spawn a background task for delayed cleanup of media attachments
+    /// This won't block the current operation and handles timing issues with Mastodon
+    pub fn spawn_cleanup_task(&self, media_ids: Vec<String>) {
+        if media_ids.is_empty() {
+            return;
+        }
+
+        let client = self.clone();
+
+        tokio::spawn(async move {
+            // Initial delay to let Mastodon process the status update
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+            let mut retry_count = 0;
+            const MAX_RETRIES: u32 = 3;
+            const RETRY_DELAY_BASE: u64 = 2; // seconds
+
+            while retry_count < MAX_RETRIES {
+                let mut any_currently_used = false;
+
+                for media_id in &media_ids {
+                    match client.delete_media_attachment(media_id).await {
+                        Ok(()) => {
+                            debug!("Successfully cleaned up media attachment: {}", media_id);
+                        }
+                        Err(MastodonError::ApiRequestFailed(msg))
+                            if msg.contains("422")
+                                && msg.contains("currently used by a status") =>
+                        {
+                            debug!("Media attachment {} still in use, will retry", media_id);
+                            any_currently_used = true;
+                        }
+                        Err(e) => {
+                            error!("Failed to delete media attachment {}: {}", media_id, e);
+                            // Don't retry for other types of errors
+                        }
+                    }
+                }
+
+                // If no media is currently in use, we're done
+                if !any_currently_used {
+                    break;
+                }
+
+                retry_count += 1;
+                if retry_count < MAX_RETRIES {
+                    let delay = RETRY_DELAY_BASE.pow(retry_count);
+                    debug!(
+                        "Retrying media cleanup in {} seconds (attempt {}/{})",
+                        delay,
+                        retry_count + 1,
+                        MAX_RETRIES
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                }
+            }
+
+            if retry_count >= MAX_RETRIES {
+                warn!(
+                    "Failed to clean up some media attachments after {} retries",
+                    MAX_RETRIES
+                );
+            }
+        });
+    }
+
+    /// Delete a single media attachment
+    async fn delete_media_attachment(&self, media_id: &str) -> Result<(), MastodonError> {
+        let url = format!(
+            "{}/api/v1/media/{}",
+            self.config.instance_url.trim_end_matches('/'),
+            media_id
+        );
+
+        debug!("Deleting orphaned media attachment: {}", media_id);
+
+        let response = self
+            .http_client
+            .delete(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to delete media {media_id}: {e}"))
+            })?;
+
+        if response.status() == 404 {
+            // Media not found - could have already been deleted or never existed
+            debug!(
+                "Media {} not found (may have been already deleted)",
+                media_id
+            );
+            return Ok(());
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            warn!("Failed to delete media {media_id}: HTTP {status}: {error_text}");
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Media deletion failed with status {status}: {error_text}"
+            )));
+        }
+
+        debug!("Successfully deleted media attachment: {}", media_id);
+        Ok(())
+    }
+
+    /// Delete multiple media attachments (cleanup orphaned media)
+    async fn delete_multiple_media_attachments(
+        &self,
+        media_ids: Vec<String>,
+    ) -> Result<(), MastodonError> {
+        if media_ids.is_empty() {
+            return Ok(());
+        }
+
+        debug!("Deleting {} orphaned media attachments", media_ids.len());
+
+        let mut deletion_errors = Vec::new();
+
+        for media_id in &media_ids {
+            if let Err(e) = self.delete_media_attachment(media_id).await {
+                // Log error but continue with other deletions
+                warn!("Failed to delete media {media_id}: {e}");
+                deletion_errors.push(format!("{media_id}: {e}"));
+            }
+        }
+
+        if !deletion_errors.is_empty() {
+            // Some deletions failed, but we continue - this is cleanup, not critical
+            warn!(
+                "Failed to delete {} out of {} media attachments: {:?}",
+                deletion_errors.len(),
+                media_ids.len(),
+                deletion_errors
+            );
+            // We could return an error here, but for cleanup it's better to be permissive
+            // return Err(MastodonError::ApiRequestFailed(format!(
+            //     "Failed to delete {} media attachments", deletion_errors.len()
+            // )));
+        }
+
+        info!(
+            "Successfully cleaned up {} orphaned media attachments",
+            media_ids.len() - deletion_errors.len()
+        );
+        Ok(())
     }
 }
 
@@ -401,22 +589,62 @@ impl MastodonStream for MastodonClient {
         Ok(toot)
     }
 
-    /// Update media attachment description
-    async fn update_media(&self, media_id: &str, description: &str) -> Result<(), MastodonError> {
-        let url = format!(
-            "{}/api/v1/media/{}",
-            self.config.instance_url.trim_end_matches('/'),
-            media_id
-        );
+    /// Update media attachment description by editing the status
+    async fn update_media(
+        &self,
+        toot_id: &str,
+        media_id: &str,
+        description: &str,
+    ) -> Result<(), MastodonError> {
+        // For backward compatibility, wrap single media update in batch update
+        let media_updates = vec![(media_id.to_string(), description.to_string())];
+        self.update_multiple_media(toot_id, media_updates).await
+    }
+
+    /// Update multiple media attachment descriptions by editing the status
+    async fn update_multiple_media(
+        &self,
+        toot_id: &str,
+        media_updates: Vec<(String, String)>, // Vec of (media_id, description)
+    ) -> Result<(), MastodonError> {
+        if media_updates.is_empty() {
+            return Ok(());
+        }
 
         debug!(
-            "Updating media description: media_id={}, description_length={}",
-            media_id,
-            description.len()
+            "Updating {} media descriptions via status edit: toot_id={}",
+            media_updates.len(),
+            toot_id
         );
 
+        // First, get the current status to preserve its content
+        let current_status = self.get_toot(toot_id).await?;
+        let status_content = &current_status.content;
+
+        // Parse HTML content to get plain text
+        let status_text = Self::extract_text_from_html(status_content);
+
+        let url = format!(
+            "{}/api/v1/statuses/{}",
+            self.config.instance_url.trim_end_matches('/'),
+            toot_id
+        );
+
+        // Prepare form data with the current status text and media attributes
         let mut form_data = std::collections::HashMap::new();
-        form_data.insert("description", description);
+        form_data.insert("status".to_string(), status_text);
+
+        for (index, (media_id, description)) in media_updates.iter().enumerate() {
+            form_data.insert(format!("media_attributes[{index}][id]"), media_id.clone());
+            form_data.insert(
+                format!("media_attributes[{index}][description]"),
+                description.clone(),
+            );
+            debug!(
+                "  - media[{index}]: id={media_id}, description_length={}",
+                description.len()
+            );
+        }
 
         let response = self
             .http_client
@@ -428,11 +656,16 @@ impl MastodonStream for MastodonClient {
             .form(&form_data)
             .send()
             .await
-            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to update media: {e}")))?;
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to update status: {e}"))
+            })?;
 
         if response.status() == 404 {
             return Err(MastodonError::MediaNotFound {
-                media_id: media_id.to_string(),
+                media_id: format!(
+                    "one of: {:?}",
+                    media_updates.iter().map(|(id, _)| id).collect::<Vec<_>>()
+                ),
             });
         }
 
@@ -450,12 +683,18 @@ impl MastodonStream for MastodonClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
+            error!(
+                "Failed to update media descriptions via status edit: HTTP {status}: {error_text}"
+            );
             return Err(MastodonError::ApiRequestFailed(format!(
                 "Media update failed with status {status}: {error_text}"
             )));
         }
 
-        info!("Successfully updated media description: {}", media_id);
+        info!(
+            "Successfully updated {} media descriptions for toot: {toot_id}",
+            media_updates.len()
+        );
         Ok(())
     }
 
@@ -471,11 +710,10 @@ impl MastodonStream for MastodonClient {
             self.config.instance_url.trim_end_matches('/')
         );
 
-        debug!("Sending direct message to user: {}", user_id);
-
-        let mut form_data = std::collections::HashMap::new();
-        form_data.insert("status", message);
-        form_data.insert("visibility", "direct");
+        let mut params = std::collections::HashMap::new();
+        params.insert("status", message);
+        params.insert("visibility", "direct");
+        params.insert("in_reply_to_id", user_id);
 
         let response = self
             .http_client
@@ -484,42 +722,29 @@ impl MastodonStream for MastodonClient {
                 "Authorization",
                 format!("Bearer {}", self.config.access_token),
             )
-            .form(&form_data)
+            .form(&params)
             .send()
             .await
             .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to send DM: {e}")))?;
-
-        if response.status() == 429 {
-            let retry_after = response
-                .headers()
-                .get("retry-after")
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(60);
-
-            return Err(MastodonError::RateLimitExceeded { retry_after });
-        }
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(MastodonError::ApiRequestFailed(format!(
-                "DM sending failed with status {status}: {error_text}"
+                "DM failed with status {status}: {error_text}"
             )));
         }
 
-        info!("Successfully sent direct message");
+        info!("DM sent successfully");
         Ok(())
     }
 
-    /// Verify credentials and get authenticated user account
+    /// Verify user credentials and store user ID for ownership checks
     async fn verify_credentials(&mut self) -> Result<Account, MastodonError> {
         let url = format!(
             "{}/api/v1/accounts/verify_credentials",
             self.config.instance_url.trim_end_matches('/')
         );
-
-        debug!("Verifying Mastodon credentials");
 
         let response = self
             .http_client
@@ -534,30 +759,228 @@ impl MastodonStream for MastodonClient {
                 MastodonError::ApiRequestFailed(format!("Failed to verify credentials: {e}"))
             })?;
 
-        if response.status() == 401 {
-            return Err(MastodonError::AuthenticationFailed(
-                "Invalid access token".to_string(),
-            ));
-        }
-
         if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
             return Err(MastodonError::ApiRequestFailed(format!(
-                "Credential verification failed with status: {}",
-                response.status()
+                "Credential verification failed with status {status}: {error_text}"
             )));
         }
 
         let account: Account = response.json().await.map_err(|e| {
-            MastodonError::InvalidTootData(format!("Failed to parse account response: {e}"))
+            MastodonError::ApiRequestFailed(format!("Failed to parse account response: {e}"))
         })?;
 
-        debug!(
+        // Store the authenticated user ID for future ownership checks
+        self.authenticated_user_id = Some(account.id.clone());
+
+        info!(
             "Credentials verified for user: {} (@{})",
             account.display_name, account.acct
         );
         Ok(account)
     }
+
+    /// Create a new media attachment with description
+    async fn create_media_attachment(
+        &self,
+        image_data: Vec<u8>,
+        description: &str,
+        filename: &str,
+    ) -> Result<String, MastodonError> {
+        let url = format!(
+            "{}/api/v2/media",
+            self.config.instance_url.trim_end_matches('/')
+        );
+
+        // Create multipart form with image data and description
+        let form = reqwest::multipart::Form::new()
+            .part(
+                "file",
+                reqwest::multipart::Part::bytes(image_data)
+                    .file_name(filename.to_string())
+                    .mime_str("image/jpeg") // Default to JPEG, could be improved to detect actual type
+                    .map_err(|e| {
+                        MastodonError::ApiRequestFailed(format!("Failed to set MIME type: {e}"))
+                    })?,
+            )
+            .text("description", description.to_string());
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to create media attachment: {e}"))
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Media creation failed with status {status}: {error_text}"
+            )));
+        }
+
+        #[derive(Deserialize)]
+        struct MediaResponse {
+            id: String,
+        }
+
+        let media_response: MediaResponse = response.json().await.map_err(|e| {
+            MastodonError::ApiRequestFailed(format!("Failed to parse media response: {e}"))
+        })?;
+
+        info!("Created new media attachment: id={}", media_response.id);
+        Ok(media_response.id)
+    }
+
+    /// Recreate media attachments with descriptions and update the status
+    async fn recreate_media_with_descriptions(
+        &self,
+        toot_id: &str,
+        media_recreations: Vec<(Vec<u8>, String)>,
+        original_media_ids: Vec<String>,
+    ) -> Result<(), MastodonError> {
+        if media_recreations.is_empty() {
+            debug!("No media to recreate for toot: {}", toot_id);
+            return Ok(());
+        }
+
+        debug!(
+            "Recreating {} media attachments for toot: {}",
+            media_recreations.len(),
+            toot_id
+        );
+
+        // Step 1: Create new media attachments with descriptions
+        let mut new_media_ids = Vec::new();
+        for (index, (image_data, description)) in media_recreations.iter().enumerate() {
+            let filename = format!("media_{index}.jpg");
+            match self
+                .create_media_attachment(image_data.clone(), description, &filename)
+                .await
+            {
+                Ok(new_media_id) => {
+                    debug!("Created new media attachment: {}", new_media_id);
+                    new_media_ids.push(new_media_id);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to create media attachment {}: {}. Cleaning up created media.",
+                        index, e
+                    );
+                    // Clean up any media we created before failing
+                    if !new_media_ids.is_empty() {
+                        if let Err(cleanup_error) =
+                            self.delete_multiple_media_attachments(new_media_ids).await
+                        {
+                            warn!(
+                                "Failed to clean up partial media during error: {}",
+                                cleanup_error
+                            );
+                        }
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        // Step 2: Update the status to use the new media attachments
+        let url = format!(
+            "{}/api/v1/statuses/{}",
+            self.config.instance_url.trim_end_matches('/'),
+            toot_id
+        );
+
+        // Get current status to preserve its content
+        let current_status = self.get_toot(toot_id).await?;
+        let status_text = Self::extract_text_from_html(&current_status.content);
+
+        let mut form_data = std::collections::HashMap::new();
+        form_data.insert("status".to_string(), status_text);
+
+        // Add new media IDs to the status update
+        for (index, media_id) in new_media_ids.iter().enumerate() {
+            form_data.insert(format!("media_ids[{index}]"), media_id.clone());
+        }
+
+        let response = self
+            .http_client
+            .put(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
+            .form(&form_data)
+            .send()
+            .await
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to update status: {e}"))
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            error!("Failed to update status with new media: HTTP {status}: {error_text}");
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Status update failed with status {status}: {error_text}"
+            )));
+        }
+
+        info!(
+            "Successfully recreated {} media attachments for toot: {}",
+            new_media_ids.len(),
+            toot_id
+        );
+
+        // Schedule non-blocking cleanup of orphaned original media attachments
+        if !original_media_ids.is_empty() {
+            debug!(
+                "Scheduling delayed cleanup of {} original media attachments",
+                original_media_ids.len()
+            );
+            self.spawn_cleanup_task(original_media_ids);
+        }
+
+        Ok(())
+    }
 }
+
+impl MastodonClient {
+    /// Extract plain text from HTML content
+    fn extract_text_from_html(html: &str) -> String {
+        // Simple HTML tag removal - this is basic but should work for our needs
+        let mut text = html.to_string();
+
+        // Remove HTML tags using a simple regex approach
+        while let Some(start) = text.find('<') {
+            if let Some(end) = text[start..].find('>') {
+                text.replace_range(start..start + end + 1, "");
+            } else {
+                break;
+            }
+        }
+
+        // Decode common HTML entities
+        text = text
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&nbsp;", " ");
+
+        text.trim().to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

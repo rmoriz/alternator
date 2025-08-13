@@ -19,20 +19,28 @@ user_stream = true
 # Sign up at https://openrouter.ai and get your API key
 api_key = "your_openrouter_api_key_here"
 
-# AI model to use for image descriptions (optional, default: "anthropic/claude-3-haiku")
-# Popular options:
-# - "anthropic/claude-3-haiku" (fast, cost-effective)
-# - "anthropic/claude-3-sonnet" (balanced performance/cost)
-# - "openai/gpt-4o-mini" (OpenAI alternative)
+# AI model to use for image descriptions (optional, default: "mistralai/mistral-small-3.2-24b-instruct:free")
+# FREE MODELS (recommended to start with):
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free vision model)
+# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free vision model)
+# - "meta-llama/llama-3.2-11b-vision-instruct:free" (Meta's free vision model)
+# - "tngtech/deepseek-r1t2-chimera:free" (advanced reasoning model)
+# 
+# PAID MODELS (better quality, higher cost):
+# - "anthropic/claude-3-haiku" (fast, cost-effective, ~$0.002/image)
+# - "anthropic/claude-3-sonnet" (balanced performance/cost, ~$0.01/image)
+# - "openai/gpt-4o-mini" (OpenAI alternative, ~$0.002/image)
 # - "google/gemini-pro-vision" (Google alternative)
-model = "anthropic/claude-3-haiku"
+model = "mistralai/mistral-small-3.2-24b-instruct:free"
 
 # OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
 base_url = "https://openrouter.ai/api/v1"
 
 # Maximum tokens for AI responses (optional, default: 150)
 # Controls cost and response length. Typical range: 50-300
-max_tokens = 150
+# For descriptive alt text: 100-200 tokens
+# For detailed descriptions: 200-400 tokens
+max_tokens = 200
 
 [media]
 # Maximum file size to process in MB (optional, default: 10)
@@ -51,7 +59,8 @@ enabled = true
 
 # Balance threshold for notifications in USD (optional, default: 5.0)
 # You'll receive a DM when your OpenRouter balance falls below this amount
-threshold = 5.0
+# Set to 0 to disable notifications, higher values for early warnings
+threshold = 10.0
 
 # Time to check balance daily in 24-hour format (optional, default: "12:00")
 # Format: "HH:MM"
@@ -74,3 +83,9 @@ level = "info"
 # ALTERNATOR_BALANCE_ENABLED=false
 # ALTERNATOR_BALANCE_THRESHOLD=10.0
 # ALTERNATOR_LOG_LEVEL=debug
+#
+# Quick Start Commands:
+# 1. Copy this file: cp alternator.toml.example alternator.toml
+# 2. Edit your credentials above
+# 3. Run: ./alternator --config alternator.toml
+# 4. Check logs for connection status and first image descriptions

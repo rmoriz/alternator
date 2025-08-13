@@ -15,49 +15,49 @@ impl LanguageDetector {
         // English template (default)
         prompt_templates.insert(
             "en".to_string(),
-            "Please provide a concise, descriptive alt-text for this image that would be helpful for visually impaired users. Focus on the main subject, important details, and context. Keep it under 150 characters.".to_string()
+            "Create a concise, descriptive alt-text for this image (max 200 characters). Focus on key visual elements, actions, and context that would help visually impaired users understand the content. Be specific and objective. Respond with ONLY the description text.".to_string()
         );
 
         // German template
         prompt_templates.insert(
             "de".to_string(),
-            "Bitte erstelle einen prägnanten, beschreibenden Alt-Text für dieses Bild, der für sehbehinderte Nutzer hilfreich wäre. Konzentriere dich auf das Hauptmotiv, wichtige Details und den Kontext. Halte es unter 150 Zeichen.".to_string()
+            "Erstelle eine prägnante, beschreibende Alt-Text-Beschreibung für dieses Bild (max. 200 Zeichen). Konzentriere dich auf wichtige visuelle Elemente, Handlungen und Kontext, die sehbehinderten Nutzern helfen würden. Sei spezifisch und objektiv. Antworte NUR mit der Beschreibung.".to_string()
         );
 
         // French template
         prompt_templates.insert(
             "fr".to_string(),
-            "Veuillez fournir un texte alternatif concis et descriptif pour cette image qui serait utile aux utilisateurs malvoyants. Concentrez-vous sur le sujet principal, les détails importants et le contexte. Limitez à 150 caractères.".to_string()
+            "Créez un texte alternatif concis et descriptif pour cette image (max 200 caractères). Concentrez-vous sur les éléments visuels clés, les actions et le contexte qui aideraient les utilisateurs malvoyants. Soyez spécifique et objectif. Répondez SEULEMENT avec le texte de description.".to_string()
         );
 
         // Spanish template
         prompt_templates.insert(
             "es".to_string(),
-            "Por favor, proporciona un texto alternativo conciso y descriptivo para esta imagen que sea útil para usuarios con discapacidad visual. Enfócate en el tema principal, detalles importantes y contexto. Manténlo bajo 150 caracteres.".to_string()
+            "Crea un texto alternativo conciso y descriptivo para esta imagen (máx. 200 caracteres). Enfócate en elementos visuales clave, acciones y contexto que ayudarían a usuarios con discapacidad visual. Sé específico y objetivo. Responde SOLO con el texto de descripción.".to_string()
         );
 
         // Italian template
         prompt_templates.insert(
             "it".to_string(),
-            "Si prega di fornire un testo alternativo conciso e descrittivo per questa immagine che sia utile per gli utenti ipovedenti. Concentrati sul soggetto principale, dettagli importanti e contesto. Mantienilo sotto i 150 caratteri.".to_string()
+            "Crea un testo alternativo conciso e descrittivo per questa immagine (max 200 caratteri). Concentrati su elementi visivi chiave, azioni e contesto che aiuterebbero gli utenti ipovedenti. Sii specifico e obiettivo. Rispondi SOLO con il testo di descrizione.".to_string()
         );
 
         // Portuguese template
         prompt_templates.insert(
             "pt".to_string(),
-            "Por favor, forneça um texto alternativo conciso e descritivo para esta imagem que seja útil para usuários com deficiência visual. Foque no assunto principal, detalhes importantes e contexto. Mantenha abaixo de 150 caracteres.".to_string()
+            "Crie um texto alternativo conciso e descritivo para esta imagem (máx. 200 caracteres). Foque em elementos visuais chave, ações e contexto que ajudariam usuários com deficiência visual. Seja específico e objetivo. Responda APENAS com o texto de descrição.".to_string()
         );
 
         // Dutch template
         prompt_templates.insert(
             "nl".to_string(),
-            "Geef alstublieft een beknopte, beschrijvende alt-tekst voor deze afbeelding die nuttig zou zijn voor visueel gehandicapte gebruikers. Focus op het hoofdonderwerp, belangrijke details en context. Houd het onder de 150 tekens.".to_string()
+            "Maak een beknopte, beschrijvende alt-tekst voor deze afbeelding (max 200 tekens). Focus op belangrijke visuele elementen, acties en context die visueel gehandicapte gebruikers zouden helpen. Wees specifiek en objectief. Antwoord ALLEEN met de beschrijvingstekst.".to_string()
         );
 
         // Japanese template
         prompt_templates.insert(
             "ja".to_string(),
-            "視覚障害者の方に役立つ、この画像の簡潔で説明的な代替テキストを提供してください。主要な被写体、重要な詳細、文脈に焦点を当ててください。150文字以内でお願いします。".to_string()
+            "この画像の簡潔で説明的な代替テキストを作成してください（200文字以内）。視覚障害者の方に役立つよう、重要な視覚要素、行動、文脈に焦点を当ててください。具体的で客観的に記述し、説明テキストのみで回答してください。".to_string()
         );
 
         Self { prompt_templates }
@@ -484,8 +484,8 @@ mod tests {
 
         let template = detector.get_prompt_template("en").unwrap();
         assert!(template.contains("alt-text"));
-        assert!(template.contains("visually impaired"));
-        assert!(template.contains("150 characters"));
+        assert!(template.contains("200 characters"));
+        assert!(template.contains("description"));
     }
 
     #[test]
@@ -494,8 +494,8 @@ mod tests {
 
         let template = detector.get_prompt_template("de").unwrap();
         assert!(template.contains("Alt-Text"));
-        assert!(template.contains("sehbehinderte"));
-        assert!(template.contains("150 Zeichen"));
+        assert!(template.contains("200 Zeichen"));
+        assert!(template.contains("NUR"));
     }
 
     #[test]
@@ -504,8 +504,8 @@ mod tests {
 
         let template = detector.get_prompt_template("fr").unwrap();
         assert!(template.contains("texte alternatif"));
-        assert!(template.contains("malvoyants"));
-        assert!(template.contains("150 caractères"));
+        assert!(template.contains("200 caractères"));
+        assert!(template.contains("SEULEMENT"));
     }
 
     #[test]
@@ -515,7 +515,7 @@ mod tests {
         // Unsupported language should fall back to English
         let template = detector.get_prompt_template("xyz").unwrap();
         assert!(template.contains("alt-text"));
-        assert!(template.contains("visually impaired"));
+        assert!(template.contains("200 characters"));
     }
 
     #[test]

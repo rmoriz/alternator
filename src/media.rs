@@ -303,6 +303,22 @@ impl MediaProcessor {
         self.transformer.transform_for_analysis(&media_data)
     }
 
+    /// Download media from an attachment and return the raw bytes for re-upload
+    pub async fn download_media_for_recreation(
+        &self,
+        media: &MediaAttachment,
+    ) -> Result<Vec<u8>, MediaError> {
+        // Check if media is supported
+        if !self.transformer.is_supported(&media.media_type) {
+            return Err(MediaError::UnsupportedType {
+                media_type: media.media_type.clone(),
+            });
+        }
+
+        // Download the original media data (not transformed for analysis)
+        self.download_media(&media.url).await
+    }
+
     /// Get statistics about media attachments
     #[allow(dead_code)] // Public API method, may be used in future
     pub fn get_media_stats(&self, media_attachments: &[MediaAttachment]) -> MediaStats {

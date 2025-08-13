@@ -113,7 +113,7 @@ impl Config {
                 },
                 openrouter: OpenRouterConfig {
                     api_key: String::new(),
-                    model: "anthropic/claude-3-haiku".to_string(),
+                    model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                     base_url: None,
                     max_tokens: None,
                 },
@@ -434,7 +434,7 @@ user_stream = true
 
 [openrouter]
 api_key = "your_api_key_here"
-model = "anthropic/claude-3-haiku"
+model = "mistralai/mistral-small-3.2-24b-instruct:free"
 base_url = "https://openrouter.ai/api/v1"
 max_tokens = 150
 
@@ -459,7 +459,10 @@ level = "info"
         assert_eq!(config.mastodon.user_stream, Some(true));
 
         assert_eq!(config.openrouter.api_key, "your_api_key_here");
-        assert_eq!(config.openrouter.model, "anthropic/claude-3-haiku");
+        assert_eq!(
+            config.openrouter.model,
+            "mistralai/mistral-small-3.2-24b-instruct:free"
+        );
         assert_eq!(
             config.openrouter.base_url,
             Some("https://openrouter.ai/api/v1".to_string())

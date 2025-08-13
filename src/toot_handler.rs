@@ -176,7 +176,10 @@ impl TootStreamHandler {
             detected_language
         );
 
-        // Process each media attachment
+        // Process each media attachment and collect successful descriptions with image data
+        let mut media_recreations = Vec::new();
+        let mut original_media_ids = Vec::new();
+
         for media in processable_media {
             info!(
                 "Processing media attachment: {} ({})",
@@ -200,12 +203,28 @@ impl TootStreamHandler {
                 }
             }
 
-            // Download and process media
+            // Download original image data for recreation
+            let original_image_data = match self
+                .media_processor
+                .download_media_for_recreation(media)
+                .await
+            {
+                Ok(data) => data,
+                Err(e) => {
+                    error!(
+                        "Failed to download media {} for recreation: {}",
+                        media.id, e
+                    );
+                    continue; // Skip this media but continue with others
+                }
+            };
+
+            // Process media for analysis (resized/optimized version)
             let processed_media_data =
                 match self.media_processor.process_media_for_analysis(media).await {
                     Ok(data) => data,
                     Err(e) => {
-                        error!("Failed to process media {}: {}", media.id, e);
+                        error!("Failed to process media {} for analysis: {}", media.id, e);
                         continue; // Skip this media but continue with others
                     }
                 };
@@ -235,26 +254,52 @@ impl TootStreamHandler {
                 media.id, description
             );
 
-            // Update media description with final race condition check
+            // Add to media recreations for batch processing
+            media_recreations.push((original_image_data, description));
+            // Track original media ID for cleanup
+            original_media_ids.push(media.id.clone());
+        }
+
+        // If we have media to recreate, do a batch recreation
+        if !media_recreations.is_empty() {
+            info!(
+                "Recreating {} media attachments with descriptions for toot {}",
+                media_recreations.len(),
+                toot.id
+            );
+
+            // Final race condition check and batch recreation
             match self
-                .update_media_with_race_check(&toot.id, &media.id, &description)
+                .recreate_media_with_race_check(
+                    &toot.id,
+                    media_recreations.clone(),
+                    original_media_ids.clone(),
+                )
                 .await
             {
                 Ok(()) => {
-                    info!("✓ Updated description for media: {}", media.id);
+                    info!(
+                        "✓ Successfully recreated {} media attachments for toot: {}",
+                        media_recreations.len(),
+                        toot.id
+                    );
                 }
                 Err(AlternatorError::Mastodon(MastodonError::RaceConditionDetected)) => {
                     info!(
-                        "Race condition detected when updating media {}, skipping",
-                        media.id
+                        "Race condition detected during media recreation for toot {}, operation aborted",
+                        toot.id
                     );
-                    continue;
                 }
                 Err(e) => {
-                    error!("Failed to update media description for {}: {}", media.id, e);
+                    error!(
+                        "Failed to recreate media attachments for toot {}: {}",
+                        toot.id, e
+                    );
                     return Err(e);
                 }
             }
+        } else {
+            info!("No media attachments to recreate for toot {}", toot.id);
         }
 
         Ok(())
@@ -320,6 +365,15 @@ impl TootStreamHandler {
                             MastodonError::RaceConditionDetected,
                         ));
                     }
+                } else {
+                    // Media attachment not found in current toot state
+                    debug!(
+                        "Media {} no longer exists in toot {}, race condition detected",
+                        media_id, toot_id
+                    );
+                    return Err(AlternatorError::Mastodon(
+                        MastodonError::RaceConditionDetected,
+                    ));
                 }
                 Ok(())
             }
@@ -334,6 +388,7 @@ impl TootStreamHandler {
     }
 
     /// Update media description with a final race condition check
+    #[allow(dead_code)] // Kept for backward compatibility, replaced by batch update
     async fn update_media_with_race_check(
         &self,
         toot_id: &str,
@@ -344,10 +399,69 @@ impl TootStreamHandler {
         self.check_race_condition(toot_id, media_id).await?;
 
         // Update media description
-        self.mastodon_client
-            .update_media(media_id, description)
+        match self
+            .mastodon_client
+            .update_media(toot_id, media_id, description)
             .await
-            .map_err(AlternatorError::Mastodon)
+        {
+            Ok(()) => Ok(()),
+            Err(MastodonError::MediaNotFound { .. }) => {
+                // Treat MediaNotFound as a race condition - the media was removed/changed
+                debug!(
+                    "Media {} not found during update, treating as race condition",
+                    media_id
+                );
+                Err(AlternatorError::Mastodon(
+                    MastodonError::RaceConditionDetected,
+                ))
+            }
+            Err(e) => Err(AlternatorError::Mastodon(e)),
+        }
+    }
+
+    /// Recreate media attachments with descriptions and race condition checks
+    async fn recreate_media_with_race_check(
+        &self,
+        toot_id: &str,
+        media_recreations: Vec<(Vec<u8>, String)>, // Vec of (image_data, description)
+        original_media_ids: Vec<String>,           // Original media IDs to clean up after success
+    ) -> Result<(), AlternatorError> {
+        if media_recreations.is_empty() {
+            return Ok(());
+        }
+
+        // Get current toot state to verify no race conditions
+        let current_toot = self
+            .mastodon_client
+            .get_toot(toot_id)
+            .await
+            .map_err(AlternatorError::Mastodon)?;
+
+        // Check if any of the original media attachments now have descriptions
+        let processable_media = self
+            .media_processor
+            .filter_processable_media(&current_toot.media_attachments);
+
+        if processable_media.len() != media_recreations.len() {
+            debug!(
+                "Media state changed: expected {} processable media, found {}. Race condition detected.",
+                media_recreations.len(),
+                processable_media.len()
+            );
+            return Err(AlternatorError::Mastodon(
+                MastodonError::RaceConditionDetected,
+            ));
+        }
+
+        // Recreate all media attachments with descriptions (includes cleanup)
+        match self
+            .mastodon_client
+            .recreate_media_with_descriptions(toot_id, media_recreations, original_media_ids)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(AlternatorError::Mastodon(e)),
+        }
     }
 
     /// Check if a toot has already been processed
@@ -415,7 +529,7 @@ mod tests {
     fn create_test_openrouter_config() -> OpenRouterConfig {
         OpenRouterConfig {
             api_key: "test_key".to_string(),
-            model: "anthropic/claude-3-haiku".to_string(),
+            model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }

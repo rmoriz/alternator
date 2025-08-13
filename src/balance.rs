@@ -367,8 +367,35 @@ mod tests {
 
         async fn update_media(
             &self,
+            _toot_id: &str,
             _media_id: &str,
             _description: &str,
+        ) -> Result<(), MastodonError> {
+            Ok(())
+        }
+
+        async fn update_multiple_media(
+            &self,
+            _toot_id: &str,
+            _media_updates: Vec<(String, String)>,
+        ) -> Result<(), MastodonError> {
+            Ok(())
+        }
+
+        async fn create_media_attachment(
+            &self,
+            _image_data: Vec<u8>,
+            _description: &str,
+            _filename: &str,
+        ) -> Result<String, MastodonError> {
+            Ok("mock_media_id".to_string())
+        }
+
+        async fn recreate_media_with_descriptions(
+            &self,
+            _toot_id: &str,
+            _media_recreations: Vec<(Vec<u8>, String)>,
+            _original_media_ids: Vec<String>,
         ) -> Result<(), MastodonError> {
             Ok(())
         }

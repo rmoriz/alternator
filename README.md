@@ -43,7 +43,7 @@ access_token = "your_mastodon_access_token"
 
 [openrouter]
 api_key = "your_openrouter_api_key"
-model = "anthropic/claude-3-haiku"
+model = "mistralai/mistral-small-3.2-24b-instruct:free"
 ```
 
 ### 3. Run
@@ -97,12 +97,12 @@ access_token = "your_token_here"
 
 [openrouter]
 api_key = "your_api_key_here"
-model = "anthropic/claude-3-haiku"
-max_tokens = 150
+model = "mistralai/mistral-small-3.2-24b-instruct:free"
+max_tokens = 200
 
 [balance]
 enabled = true
-threshold = 5.0
+threshold = 10.0
 check_time = "12:00"
 
 [logging]
@@ -117,7 +117,7 @@ All configuration options can be overridden with environment variables:
 export ALTERNATOR_MASTODON_INSTANCE_URL="https://your.instance.com"
 export ALTERNATOR_MASTODON_ACCESS_TOKEN="your_token"
 export ALTERNATOR_OPENROUTER_API_KEY="your_key"
-export ALTERNATOR_OPENROUTER_MODEL="anthropic/claude-3-sonnet"
+export ALTERNATOR_OPENROUTER_MODEL="mistralai/mistral-small-3.2-24b-instruct:free"
 export ALTERNATOR_LOG_LEVEL="debug"
 ```
 
@@ -144,11 +144,17 @@ export ALTERNATOR_LOG_LEVEL="debug"
 
 Popular model options for the `model` configuration:
 
-- `mistralai/mistral-small-3.2-24b-instruct:free` - Free Mistral model with vision capabilities
-- `moonshotai/kimi-vl-a3b-thinking:free` - Free Moonshot vision model with reasoning
-- `qwen/qwen2.5-vl-32b-instruct:free` - Free Qwen large vision model
-- `google/gemma-3-27b-it:free` - Free Google Gemma model
-- `meta-llama/llama-3.2-11b-vision-instruct:free` - Free Meta Llama vision model
+### Free Models (Recommended to Start)
+- `mistralai/mistral-small-3.2-24b-instruct:free` - Excellent free vision model with strong performance
+- `qwen/qwen2.5-vl-32b-instruct:free` - Powerful free vision model with large context
+- `meta-llama/llama-3.2-11b-vision-instruct:free` - Meta's free vision model
+- `tngtech/deepseek-r1t2-chimera:free` - Advanced reasoning model with vision
+
+### Paid Models (Higher Quality)
+- `anthropic/claude-3-haiku` - Fast, cost-effective (~$0.002 per image)
+- `anthropic/claude-3-sonnet` - Balanced performance/cost (~$0.01 per image)  
+- `openai/gpt-4o-mini` - OpenAI's efficient model (~$0.002 per image)
+- `google/gemini-pro-vision` - Google's vision model
 
 See [OpenRouter Models](https://openrouter.ai/models) for the complete list.
 
@@ -272,9 +278,9 @@ Generates descriptions in the detected language of your toot:
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `api_key` | String | Yes | - | Your OpenRouter API key |
-| `model` | String | No | `"anthropic/claude-3-haiku"` | AI model to use |
+| `model` | String | No | `"mistralai/mistral-small-3.2-24b-instruct:free"` | AI model to use |
 | `base_url` | String | No | `"https://openrouter.ai/api/v1"` | OpenRouter API base URL |
-| `max_tokens` | Integer | No | `150` | Maximum tokens per request |
+| `max_tokens` | Integer | No | `200` | Maximum tokens per request |
 
 ### `[media]` Section
 
@@ -289,7 +295,7 @@ Generates descriptions in the detected language of your toot:
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `enabled` | Boolean | No | `true` | Enable balance monitoring |
-| `threshold` | Float | No | `5.0` | Balance threshold for notifications |
+| `threshold` | Float | No | `10.0` | Balance threshold for notifications |
 | `check_time` | String | No | `"12:00"` | Daily check time (24-hour format) |
 
 ### `[logging]` Section
@@ -362,7 +368,13 @@ docker run -v $(pwd)/config:/app/config alternator/alternator ls -la /app/config
 ## FAQ
 
 **Q: How much does it cost to run?**
-A: Costs depend on your usage and chosen AI model. Claude-3-Haiku typically costs $0.002-0.01 per image description. Monitor your usage via OpenRouter's dashboard.
+A: Free models cost nothing! For paid models, costs depend on usage. Claude-3-Haiku typically costs $0.002-0.01 per image description. Monitor your usage via OpenRouter's dashboard.
+
+**Q: Can I use this for free?**
+A: Yes! Start with free models like `mistralai/mistral-small-3.2-24b-instruct:free` or `qwen/qwen2.5-vl-32b-instruct:free`. You only pay for OpenRouter if you choose paid models.
+
+**Q: Which model should I use?**
+A: Start with `mistralai/mistral-small-3.2-24b-instruct:free` for excellent quality at no cost. Upgrade to `anthropic/claude-3-haiku` if you need faster processing or more nuanced descriptions.
 
 **Q: Can I use this with multiple Mastodon accounts?**
 A: Currently, each Alternator instance supports one Mastodon account. Run multiple instances with different configurations for multiple accounts.

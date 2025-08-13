@@ -85,6 +85,21 @@ pub struct ImageDescriptionRequest {
     pub model: String,
     pub messages: Vec<Message>,
     pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningConfig>,
+}
+
+/// Reasoning configuration for controlling reasoning tokens
+#[derive(Debug, Serialize)]
+pub struct ReasoningConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,6 +139,8 @@ pub struct Choice {
 #[derive(Debug, Deserialize)]
 pub struct ResponseMessage {
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,6 +190,18 @@ impl OpenRouterClient {
         }
     }
 
+    /// Sanitize text for safe Mastodon API usage
+    fn sanitize_description(text: &str) -> String {
+        // Remove any null bytes and non-printable control characters (except newlines/tabs)
+        let cleaned: String = text
+            .chars()
+            .filter(|&c| c == '\n' || c == '\t' || (!c.is_control() && c != '\0'))
+            .collect();
+
+        // Normalize unicode and ensure valid UTF-8
+        cleaned.trim().to_string()
+    }
+
     /// Get the base URL for OpenRouter API
     fn base_url(&self) -> &str {
         self.config
@@ -214,6 +243,12 @@ impl OpenRouterClient {
             OpenRouterError::ApiRequestFailed(format!("Failed to read response: {e}"))
         })?;
 
+        // Log the complete OpenRouter response verbatim for debugging
+        debug!(
+            "OpenRouter API response (status: {}): {}",
+            status, response_text
+        );
+
         if !status.is_success() {
             // Try to parse error response
             if let Ok(error_response) = serde_json::from_str::<ErrorResponse>(&response_text) {
@@ -251,7 +286,7 @@ impl OpenRouterClient {
 
         serde_json::from_str(&response_text).map_err(|e| {
             error!("Failed to parse OpenRouter response: {}", e);
-            debug!("Response text: {}", response_text);
+            debug!("Raw OpenRouter response text: {}", response_text);
             OpenRouterError::InvalidResponse(format!("JSON parsing failed: {e}"))
         })
     }
@@ -435,6 +470,12 @@ impl OpenRouterClient {
                 ],
             }],
             max_tokens: self.config.max_tokens,
+            reasoning: Some(ReasoningConfig {
+                exclude: Some(true), // Exclude reasoning tokens to save costs and get cleaner responses
+                enabled: None,
+                effort: None,
+                max_tokens: None,
+            }),
         };
 
         let response: ImageDescriptionResponse = self
@@ -454,7 +495,30 @@ impl OpenRouterClient {
             ));
         }
 
-        let description = response.choices[0].message.content.trim().to_string();
+        // Extract the main content (not reasoning tokens) from the response
+        let raw_description = response.choices[0].message.content.trim();
+
+        // Sanitize the description to remove any problematic characters
+        let description = Self::sanitize_description(raw_description);
+
+        debug!(
+            "OpenRouter response - raw length: {}, sanitized length: {}, content preview: '{}'",
+            raw_description.len(),
+            description.len(),
+            if description.len() > 100 {
+                format!("{}...", &description[..100])
+            } else {
+                description.to_string()
+            }
+        );
+
+        // Log if reasoning tokens were present but excluded
+        if let Some(reasoning) = &response.choices[0].message.reasoning {
+            debug!(
+                "Reasoning tokens were present but excluded: {} chars",
+                reasoning.len()
+            );
+        }
 
         // Log token usage if available
         if let Some(usage) = response.usage {
@@ -479,8 +543,33 @@ impl OpenRouterClient {
             ));
         }
 
-        debug!("Generated description: {}", description);
-        Ok(description)
+        // Ensure description respects character limit (200 chars as per prompt templates)
+        const MAX_DESCRIPTION_LENGTH: usize = 200;
+        let final_description = if description.len() > MAX_DESCRIPTION_LENGTH {
+            warn!(
+                "Description too long ({} chars), truncating to {} chars",
+                description.len(),
+                MAX_DESCRIPTION_LENGTH
+            );
+
+            // Find the last space before the limit to avoid cutting words
+            let truncated = &description[..MAX_DESCRIPTION_LENGTH];
+            if let Some(last_space) = truncated.rfind(' ') {
+                if last_space > MAX_DESCRIPTION_LENGTH * 3 / 4 {
+                    // Only use space if it's not too early
+                    format!("{}…", &description[..last_space])
+                } else {
+                    format!("{truncated}…")
+                }
+            } else {
+                format!("{truncated}…")
+            }
+        } else {
+            description
+        };
+
+        debug!("Generated description: {}", final_description);
+        Ok(final_description)
     }
 }
 
@@ -492,7 +581,7 @@ mod tests {
     fn create_test_config() -> OpenRouterConfig {
         OpenRouterConfig {
             api_key: "test_key".to_string(),
-            model: "anthropic/claude-3-haiku".to_string(),
+            model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }
@@ -504,7 +593,10 @@ mod tests {
         let client = OpenRouterClient::new(config.clone());
 
         assert_eq!(client.config.api_key, "test_key");
-        assert_eq!(client.config.model, "anthropic/claude-3-haiku");
+        assert_eq!(
+            client.config.model,
+            "mistralai/mistral-small-3.2-24b-instruct:free"
+        );
         assert_eq!(client.base_url(), "https://test.openrouter.ai/api/v1");
     }
 
@@ -549,11 +641,23 @@ mod tests {
                 ],
             }],
             max_tokens: Some(150),
+            reasoning: Some(ReasoningConfig {
+                exclude: Some(true),
+                enabled: None,
+                effort: None,
+                max_tokens: None,
+            }),
         };
 
         let json = serde_json::to_value(&request).unwrap();
+        println!(
+            "Serialized request: {}",
+            serde_json::to_string_pretty(&json).unwrap()
+        );
+
         assert_eq!(json["model"], "test-model");
         assert_eq!(json["max_tokens"], 150);
+        assert_eq!(json["reasoning"]["exclude"], true);
         assert_eq!(json["messages"][0]["role"], "user");
         assert_eq!(json["messages"][0]["content"][0]["type"], "text");
         assert_eq!(json["messages"][0]["content"][1]["type"], "image_url");
@@ -588,7 +692,7 @@ mod tests {
     fn test_models_response_deserialization() {
         let json_response = json!({
             "data": [{
-                "id": "anthropic/claude-3-haiku",
+                "id": "mistralai/mistral-small-3.2-24b-instruct:free",
                 "name": "Claude 3 Haiku",
                 "description": "Fast and efficient model",
                 "pricing": {
@@ -601,7 +705,10 @@ mod tests {
 
         let response: ModelsResponse = serde_json::from_value(json_response).unwrap();
         assert_eq!(response.data.len(), 1);
-        assert_eq!(response.data[0].id, "anthropic/claude-3-haiku");
+        assert_eq!(
+            response.data[0].id,
+            "mistralai/mistral-small-3.2-24b-instruct:free"
+        );
         assert_eq!(response.data[0].name, "Claude 3 Haiku");
         assert_eq!(response.data[0].context_length, Some(200000));
     }
@@ -716,5 +823,33 @@ mod tests {
             .to_string()
             .contains("Unsupported image format"));
         assert!(format_error.to_string().contains("image/bmp"));
+    }
+
+    #[test]
+    fn test_sanitize_description() {
+        // Test normal text
+        let input = "A beautiful sunset over the ocean";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "A beautiful sunset over the ocean");
+
+        // Test text with control characters
+        let input = format!("Text{}with{}control{}chars", '\0', '\x01', '\x02');
+        let result = OpenRouterClient::sanitize_description(&input);
+        assert_eq!(result, "Textwithcontrolchars");
+
+        // Test text with valid whitespace
+        let input = "  Text\nwith\ttabs  ";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "Text\nwith\ttabs");
+
+        // Test empty string
+        let input = "";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "");
+
+        // Test unicode text
+        let input = "Schönes Bild mit Umlauten";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "Schönes Bild mit Umlauten");
     }
 }

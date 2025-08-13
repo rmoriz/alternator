@@ -66,6 +66,7 @@ pub enum MastodonError {
     Disconnected(String),
 
     #[error("Authentication failed: {0}")]
+    #[allow(dead_code)]
     AuthenticationFailed(String),
 
     #[error("API request failed: {0}")]
