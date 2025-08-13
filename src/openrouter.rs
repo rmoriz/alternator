@@ -202,6 +202,28 @@ impl OpenRouterClient {
         cleaned.trim().to_string()
     }
 
+    /// Safely truncate text at character boundaries, preferring word boundaries
+    fn safe_truncate(text: &str, max_chars: usize) -> String {
+        if text.chars().count() <= max_chars {
+            return text.to_string();
+        }
+
+        // Collect characters up to the limit
+        let chars: Vec<char> = text.chars().take(max_chars).collect();
+        let truncated: String = chars.iter().collect();
+
+        // Try to find the last space to avoid cutting words
+        if let Some(last_space) = truncated.rfind(' ') {
+            let last_space_char_pos = truncated.chars().take(last_space).count();
+            // Only use space if it's not too early (at least 75% of the limit)
+            if last_space_char_pos > max_chars * 3 / 4 {
+                return format!("{}…", &truncated[..last_space]);
+            }
+        }
+
+        format!("{truncated}…")
+    }
+
     /// Get the base URL for OpenRouter API
     fn base_url(&self) -> &str {
         self.config
@@ -505,8 +527,8 @@ impl OpenRouterClient {
             "OpenRouter response - raw length: {}, sanitized length: {}, content preview: '{}'",
             raw_description.len(),
             description.len(),
-            if description.len() > 100 {
-                format!("{}...", &description[..100])
+            if description.chars().count() > 100 {
+                format!("{}...", description.chars().take(100).collect::<String>())
             } else {
                 description.to_string()
             }
@@ -545,25 +567,14 @@ impl OpenRouterClient {
 
         // Ensure description respects character limit (1500 chars as per prompt templates)
         const MAX_DESCRIPTION_LENGTH: usize = 1500;
-        let final_description = if description.len() > MAX_DESCRIPTION_LENGTH {
+        let final_description = if description.chars().count() > MAX_DESCRIPTION_LENGTH {
             warn!(
                 "Description too long ({} chars), truncating to {} chars",
-                description.len(),
+                description.chars().count(),
                 MAX_DESCRIPTION_LENGTH
             );
 
-            // Find the last space before the limit to avoid cutting words
-            let truncated = &description[..MAX_DESCRIPTION_LENGTH];
-            if let Some(last_space) = truncated.rfind(' ') {
-                if last_space > MAX_DESCRIPTION_LENGTH * 3 / 4 {
-                    // Only use space if it's not too early
-                    format!("{}…", &description[..last_space])
-                } else {
-                    format!("{truncated}…")
-                }
-            } else {
-                format!("{truncated}…")
-            }
+            Self::safe_truncate(&description, MAX_DESCRIPTION_LENGTH)
         } else {
             description
         };
@@ -851,5 +862,110 @@ mod tests {
         let input = "Schönes Bild mit Umlauten";
         let result = OpenRouterClient::sanitize_description(input);
         assert_eq!(result, "Schönes Bild mit Umlauten");
+    }
+
+    #[test]
+    fn test_safe_truncate_basic() {
+        // Test text shorter than limit
+        let short_text = "Short text";
+        assert_eq!(
+            OpenRouterClient::safe_truncate(short_text, 20),
+            "Short text"
+        );
+
+        // Test text exactly at limit
+        let exact_text = "Exactly twenty chars";
+        assert_eq!(
+            OpenRouterClient::safe_truncate(exact_text, 20),
+            "Exactly twenty chars"
+        );
+
+        // Test text longer than limit (no spaces)
+        let long_text = "ThisIsAVeryLongTextWithoutSpaces";
+        let result = OpenRouterClient::safe_truncate(long_text, 10);
+        assert_eq!(result, "ThisIsAVer…");
+        assert_eq!(result.chars().count(), 11); // 10 chars + ellipsis
+    }
+
+    #[test]
+    fn test_safe_truncate_with_spaces() {
+        // Test truncation at word boundary
+        let text = "This is a long sentence that needs truncation";
+        let result = OpenRouterClient::safe_truncate(text, 20);
+
+        // Should break at word boundary and add ellipsis
+        assert!(result.ends_with('…'));
+        assert!(result.chars().count() <= 21); // 20 + ellipsis
+        assert!(!result.contains("truncation")); // Should be cut before this word
+    }
+
+    #[test]
+    fn test_safe_truncate_japanese() {
+        // Japanese text from the error log
+        let japanese_text = "木製のテーブルに半分ほどビールが注がれた透明なグラスと、中に角切りのチェダーチーズスナックが入ったガラスのボウルが置かれている。グラスとボウルは、トーンがかかった柴編みのコースターの上にあり、そのコースターはテーブルの上に置かれています。背景は落ち着いた灰色で、飲食品を目立たせています。";
+
+        // Test various truncation lengths
+        for max_chars in [50, 100, 150] {
+            let result = OpenRouterClient::safe_truncate(japanese_text, max_chars);
+
+            // Should not panic (this was the original issue)
+            assert!(result.chars().count() <= max_chars + 1); // +1 for ellipsis
+
+            // Should be valid UTF-8 (no broken characters)
+            assert!(result.is_ascii() || result.chars().all(|c| c.is_alphanumeric() || c.is_whitespace() || "。、…のとにが入っグラスボウル置れている上あり灰色で目立せます透明なチダーズナックガーターブー".contains(c)));
+        }
+
+        // Test that 100 characters doesn't panic (original error point)
+        let result = OpenRouterClient::safe_truncate(japanese_text, 100);
+        assert!(!result.is_empty());
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_safe_truncate_mixed_unicode() {
+        // Mix of ASCII, Japanese, and emoji
+        let mixed_text = "Hello 世界! This is a test 🌍 with mixed characters 日本語";
+
+        let result = OpenRouterClient::safe_truncate(mixed_text, 25);
+        assert!(result.chars().count() <= 26); // 25 + ellipsis
+
+        // Should handle all character types without panicking
+        let result2 = OpenRouterClient::safe_truncate(mixed_text, 10);
+        assert!(result2.chars().count() <= 11); // 10 + ellipsis
+    }
+
+    #[test]
+    fn test_safe_truncate_edge_cases() {
+        // Empty string
+        assert_eq!(OpenRouterClient::safe_truncate("", 10), "");
+
+        // Single character
+        assert_eq!(OpenRouterClient::safe_truncate("A", 10), "A");
+
+        // Only spaces
+        let spaces = "     ";
+        let result = OpenRouterClient::safe_truncate(spaces, 3);
+        assert_eq!(result, "   …");
+
+        // Limit of 0
+        let result = OpenRouterClient::safe_truncate("test", 0);
+        assert_eq!(result, "…");
+    }
+
+    #[test]
+    fn test_debug_formatting_japanese() {
+        // Test the debug formatting that was causing the panic
+        let japanese_text = "木製のテーブルに半分ほどビールが注がれた透明なグラスと、中に角切りのチェダーチーズスナックが入ったガラスのボウルが置かれている。";
+
+        // This simulates the debug formatting logic that was fixed
+        let preview = if japanese_text.chars().count() > 100 {
+            format!("{}...", japanese_text.chars().take(100).collect::<String>())
+        } else {
+            japanese_text.to_string()
+        };
+
+        // Should not panic and should be valid
+        assert!(!preview.is_empty());
+        assert!(preview.chars().count() <= 103); // 100 + "..."
     }
 }
