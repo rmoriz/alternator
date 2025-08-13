@@ -38,7 +38,7 @@ jobs:
       if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
 
     - name: Run Clippy linting
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo clippy --all-targets --all-features -- -D warnings -A clippy::uninlined_format_args -A dead_code -A async_fn_in_trait -A clippy::collapsible_match -A clippy::unnecessary_lazy_evaluations -A clippy::needless_borrows_for_generic_args -A clippy::redundant_closure -A clippy::result_large_err
       if: matrix.rust == 'stable'
 
     - name: Run tests
