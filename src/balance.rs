@@ -615,13 +615,14 @@ mod tests {
         let monitor = BalanceMonitor::new(config, openrouter_client);
 
         let seconds = monitor.seconds_until_next_check().unwrap();
-        
+
         // Should never return 0 seconds to prevent infinite loops
         // Minimum should be 60 seconds (our safety threshold)
-        assert!(seconds >= 60, "Expected at least 60 seconds, got {}", seconds);
-        
-        // Should be reasonable (not more than 24 hours + 1 day)
-        assert!(seconds <= 48 * 60 * 60, "Expected at most 48 hours, got {}", seconds);
+        assert!(seconds >= 60, "Expected at least 60 seconds, got {seconds}");
+        assert!(
+            seconds <= 48 * 60 * 60,
+            "Expected at most 48 hours, got {seconds}"
+        );
     }
 
     // Note: The following tests would require more complex mocking of the OpenRouter client

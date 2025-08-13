@@ -25,6 +25,7 @@
 - Main modules: `mastodon`, `openrouter`, `media`, `language`, `balance`, `toot_handler`
 
 ## Git Workflow
+- **MANDATORY**: Before ANY commit: ALL tests must pass, ALL lint must pass, ALL typecheck must pass. NO EXCEPTIONS.
 - **CRITICAL**: Every change MUST be committed to git with a descriptive commit message
 - **CRITICAL**: Every change MUST be pushed to GitHub after committing
 - Do NOT add Co-Authored-By: Claude <noreply@anthropic.com> to commit messages

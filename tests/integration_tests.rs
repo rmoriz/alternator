@@ -44,6 +44,22 @@ fn create_test_config() -> Config {
 
 #[tokio::test]
 async fn test_config_loading_from_file() {
+    // Clean up any existing ALTERNATOR env vars to ensure test isolation
+    let env_vars_to_clean = [
+        "ALTERNATOR_MASTODON_INSTANCE_URL",
+        "ALTERNATOR_MASTODON_ACCESS_TOKEN",
+        "ALTERNATOR_OPENROUTER_API_KEY",
+        "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_MAX_TOKENS",
+        "ALTERNATOR_BALANCE_ENABLED",
+        "ALTERNATOR_BALANCE_THRESHOLD",
+        "ALTERNATOR_LOG_LEVEL",
+    ];
+
+    for var in &env_vars_to_clean {
+        std::env::remove_var(var);
+    }
+
     // Create a temporary config file
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("test_config.toml");
@@ -91,6 +107,11 @@ level = "info"
 
 #[tokio::test]
 async fn test_config_environment_variable_overrides() {
+    // Create a temporary directory and change to it to avoid loading existing config
+    let temp_dir = tempfile::tempdir().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&temp_dir).unwrap();
+
     // Set environment variables
     std::env::set_var(
         "ALTERNATOR_MASTODON_INSTANCE_URL",
@@ -125,13 +146,28 @@ async fn test_config_environment_variable_overrides() {
     std::env::remove_var("ALTERNATOR_BALANCE_ENABLED");
     std::env::remove_var("ALTERNATOR_BALANCE_THRESHOLD");
     std::env::remove_var("ALTERNATOR_LOG_LEVEL");
+
+    // Restore original directory
+    std::env::set_current_dir(original_dir).unwrap();
 }
 
 #[tokio::test]
 async fn test_config_validation_missing_required_fields() {
-    // Test missing mastodon instance URL
-    let mut config = create_test_config();
-    config.mastodon.instance_url = String::new();
+    // Clean up any existing ALTERNATOR env vars to ensure test isolation
+    let env_vars_to_clean = [
+        "ALTERNATOR_MASTODON_INSTANCE_URL",
+        "ALTERNATOR_MASTODON_ACCESS_TOKEN",
+        "ALTERNATOR_OPENROUTER_API_KEY",
+        "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_MAX_TOKENS",
+        "ALTERNATOR_BALANCE_ENABLED",
+        "ALTERNATOR_BALANCE_THRESHOLD",
+        "ALTERNATOR_LOG_LEVEL",
+    ];
+
+    for var in &env_vars_to_clean {
+        std::env::remove_var(var);
+    }
 
     let temp_dir = tempfile::tempdir().unwrap();
     let config_path = temp_dir.path().join("invalid_config.toml");
