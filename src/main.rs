@@ -21,7 +21,7 @@ use crate::toot_handler::TootStreamHandler;
 #[command(about = "Automatically adds descriptions to media attachments in Mastodon toots")]
 #[command(version)]
 struct Cli {
-    /// Path to configuration file
+    /// Path to configuration file (can also be set via ALTERNATOR_CONFIG env var)
     #[arg(short, long)]
     config: Option<PathBuf>,
 
@@ -32,6 +32,17 @@ struct Cli {
     /// Enable verbose logging (equivalent to --log-level debug)
     #[arg(short, long)]
     verbose: bool,
+}
+
+impl Cli {
+    /// Get config path from CLI arg or ALTERNATOR_CONFIG environment variable
+    fn config_path(&self) -> Option<PathBuf> {
+        self.config.clone().or_else(|| {
+            std::env::var("ALTERNATOR_CONFIG")
+                .ok()
+                .map(PathBuf::from)
+        })
+    }
 }
 
 /// Initialize structured logging with proper error handling
@@ -140,7 +151,7 @@ async fn main() -> Result<(), AlternatorError> {
     let cli = Cli::parse();
 
     // Load configuration first
-    let config = match Config::load(cli.config.clone()) {
+    let config = match Config::load(cli.config_path()) {
         Ok(config) => config,
         Err(e) => {
             // Initialize basic logging for configuration errors
@@ -409,5 +420,30 @@ mod tests {
 
         let cli = Cli::parse_from(["alternator", "--verbose"]);
         assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_alternator_config_env_var() {
+        // Test that ALTERNATOR_CONFIG environment variable is used when no CLI arg provided
+        std::env::set_var("ALTERNATOR_CONFIG", "/env/path/to/config.toml");
+        
+        let cli = Cli::parse_from(["alternator"]);
+        assert_eq!(cli.config_path(), Some(PathBuf::from("/env/path/to/config.toml")));
+        
+        // Clean up
+        std::env::remove_var("ALTERNATOR_CONFIG");
+        
+        // Test that CLI arg overrides environment variable
+        std::env::set_var("ALTERNATOR_CONFIG", "/env/path/to/config.toml");
+        
+        let cli = Cli::parse_from(["alternator", "--config", "/cli/path/to/config.toml"]);
+        assert_eq!(cli.config_path(), Some(PathBuf::from("/cli/path/to/config.toml")));
+        
+        // Clean up
+        std::env::remove_var("ALTERNATOR_CONFIG");
+        
+        // Test that no config is returned when neither CLI arg nor env var is set
+        let cli = Cli::parse_from(["alternator"]);
+        assert_eq!(cli.config_path(), None);
     }
 }
