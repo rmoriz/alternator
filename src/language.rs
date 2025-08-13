@@ -240,6 +240,24 @@ impl LanguageDetector {
             "צרו טקסט alt קצר ותיאורי עבור התמונה הזו. התמקדו באלמנטים חזותיים מרכזיים, פעולות והקשר שיעזרו למשתמשים עם לקויות ראייה. היו ספציפיים ואובייקטיביים. סיימו את התיאור שלכם עם ' — תיאור התמונה הזה נוצר על ידי בינה מלאכותית: {model}' כאשר {model} הוא שם מודל הבינה המלאכותית. שמרו על התשובה הכוללת (תיאור + ייחוס) מתחת ל-1500 תווים. ענו רק עם הטקסט התיאורי כולל הייחוס.".to_string()
         );
 
+        // Finnish template
+        prompt_templates.insert(
+            "fi".to_string(),
+            "Luo tiivis, kuvaava alt-teksti tälle kuvalle. Keskity tärkeisiin visuaalisiin elementteihin, toimintoihin ja kontekstiin, jotka auttaisivat näkövammaisia käyttäjiä. Ole tarkka ja objektiivinen. Lopeta kuvauksesi tekstillä ' — tämän kuvan kuvauksen on luonut tekoäly: {model}' missä {model} on tekoälymallin nimi. Pidä KOKONAISVASTAUS (kuvaus + lähdemerkintä) alle 1500 merkkiä. Vastaa VAIN kuvaavalla tekstillä lähdemerkintä mukaan lukien.".to_string()
+        );
+
+        // Irish template
+        prompt_templates.insert(
+            "ga".to_string(),
+            "Cruthaigh téacs alt gearr, tuairisciúil don íomhá seo. Dírigh ar eilimintí amhairc tábhachtacha, gníomhartha agus comhthéacs a chabhródh le húsáideoirí a bhfuil lagú radhairc orthu. Bí sonrach agus oibiachtúil. Críochnaigh do thuairisc le ' — rinne hintleacht shaorga an tuairisc íomhá seo: {model}' áit a bhfuil {model} ainm an tsamhail AI. Coinnigh an FREAGRA IOMLÁN (tuairisc + sannadh) faoi bhun 1500 carachtar. Freagair le téacs tuairisciúil AMHÁIN lena n-áirítear an sannadh.".to_string()
+        );
+
+        // Welsh template
+        prompt_templates.insert(
+            "cy".to_string(),
+            "Crëwch destun alt cryno, disgrifiadol ar gyfer y ddelwedd hon. Canolbwyntiwch ar elfennau gweledol allweddol, gweithredoedd a chyd-destun a fyddai'n helpu defnyddwyr â nam ar eu golwg. Byddwch yn benodol ac yn wrthrychol. Gorffennwch eich disgrifiad gyda ' — cafodd y disgrifiad delwedd hwn ei greu gan ddeallusrwydd artiffisial: {model}' lle mae {model} yn enw'r model AI. Cadwch yr YMATEB CYFAN (disgrifiad + priodoli) o dan 1500 nod. Atebwch gyda'r testun disgrifiadol YN UNIG gan gynnwys y priodoli.".to_string()
+        );
+
         Self { prompt_templates }
     }
 
