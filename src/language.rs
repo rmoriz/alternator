@@ -258,6 +258,18 @@ impl LanguageDetector {
             "Crëwch destun alt cryno, disgrifiadol ar gyfer y ddelwedd hon. Canolbwyntiwch ar elfennau gweledol allweddol, gweithredoedd a chyd-destun a fyddai'n helpu defnyddwyr â nam ar eu golwg. Byddwch yn benodol ac yn wrthrychol. Gorffennwch eich disgrifiad gyda ' — cafodd y disgrifiad delwedd hwn ei greu gan ddeallusrwydd artiffisial: {model}' lle mae {model} yn enw'r model AI. Cadwch yr YMATEB CYFAN (disgrifiad + priodoli) o dan 1500 nod. Atebwch gyda'r testun disgrifiadol YN UNIG gan gynnwys y priodoli.".to_string()
         );
 
+        // Romanian template
+        prompt_templates.insert(
+            "ro".to_string(),
+            "Creați un text alternativ concis și descriptiv pentru această imagine. Concentrați-vă pe elementele vizuale cheie, acțiuni și context care ar ajuta utilizatorii cu deficiențe de vedere. Fiți specifici și obiectivi. Terminați descrierea cu ' — această descriere a imaginii a fost creată de inteligența artificială: {model}' unde {model} este numele modelului AI. Păstrați RĂSPUNSUL TOTAL (descriere + atribuire) sub 1500 de caractere. Răspundeți DOAR cu textul descriptiv incluzând atribuirea.".to_string()
+        );
+
+        // Romansh template
+        prompt_templates.insert(
+            "rm".to_string(),
+            "Creai in text alternativ concis e descriptiv per questa maletg. Concentrai vus sin elements visuals impurtants, acziuns e context che gidass utilisaders cun impediments da vista. Siai specifics ed objectivs. Finiai vossa descripziun cun ' — questa descripziun da maletg è vegnida creada dad intelligenza artifiziala: {model}' nua che {model} è il num dal model AI. Tegniai la RESPOSTA TOTALA (descripziun + attribuziun) sut 1500 caracters. Respundiai SULETTAMAIN cul text descriptiv inclusiv l'attribuziun.".to_string()
+        );
+
         Self { prompt_templates }
     }
 

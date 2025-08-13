@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Enhanced
-- **Added 3 additional Celtic languages** - Finnish, Irish Gaelic, and Welsh language support for AI attribution
+- **Added 5 additional languages** - Finnish, Irish Gaelic, Welsh, Romanian, and Romansh language support for AI attribution
 
 ## [0.1.2] - 2025-08-13
 
