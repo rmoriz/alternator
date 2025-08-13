@@ -144,10 +144,11 @@ export ALTERNATOR_LOG_LEVEL="debug"
 
 Popular model options for the `model` configuration:
 
-- `anthropic/claude-3-haiku` - Fast and cost-effective (recommended)
-- `anthropic/claude-3-sonnet` - Balanced performance and cost
-- `openai/gpt-4o-mini` - OpenAI's efficient model
-- `google/gemini-pro-vision` - Google's vision model
+- `mistralai/mistral-small-3.2-24b-instruct:free` - Free Mistral model with vision capabilities
+- `moonshotai/kimi-vl-a3b-thinking:free` - Free Moonshot vision model with reasoning
+- `qwen/qwen2.5-vl-32b-instruct:free` - Free Qwen large vision model
+- `google/gemma-3-27b-it:free` - Free Google Gemma model
+- `meta-llama/llama-3.2-11b-vision-instruct:free` - Free Meta Llama vision model
 
 See [OpenRouter Models](https://openrouter.ai/models) for the complete list.
 
