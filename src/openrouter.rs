@@ -76,7 +76,7 @@ pub struct AccountBalance {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BalanceData {
-    pub balance: f64,
+    pub usage: f64,
 }
 
 /// Image description request
@@ -359,7 +359,7 @@ impl OpenRouterClient {
             )
             .await?;
 
-        let balance = response.data.balance;
+        let balance = response.data.usage;
         info!("OpenRouter account balance: ${:.2}", balance);
 
         Ok(balance)
@@ -610,12 +610,12 @@ mod tests {
     fn test_account_balance_deserialization() {
         let json_response = json!({
             "data": {
-                "balance": 25.50
+                "usage": 25.50
             }
         });
 
         let response: AccountBalance = serde_json::from_value(json_response).unwrap();
-        assert_eq!(response.data.balance, 25.50);
+        assert_eq!(response.data.usage, 25.50);
     }
 
     #[test]

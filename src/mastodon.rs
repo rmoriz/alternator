@@ -106,7 +106,33 @@ impl MastodonClient {
         }
     }
 
-    /// Get the WebSocket streaming URL
+    /// Resolve the WebSocket streaming URL, following any redirects
+    async fn resolve_streaming_url(&self) -> Result<Url, MastodonError> {
+        let base_url = self.config.instance_url.trim_end_matches('/');
+        let http_url = format!(
+            "{}/api/v1/streaming?access_token={}&stream=user",
+            base_url, self.config.access_token
+        );
+
+        // Make a HEAD request to resolve any redirects
+        let response = self.http_client.head(&http_url).send().await.map_err(|e| {
+            MastodonError::ConnectionFailed(format!("Failed to resolve streaming URL: {e}"))
+        })?;
+
+        let final_url = response.url().to_string();
+        debug!("Resolved HTTP URL: {} -> {}", http_url, final_url);
+
+        // Convert the final HTTP URL to WebSocket URL
+        let streaming_url = final_url
+            .replace("https://", "wss://")
+            .replace("http://", "ws://");
+
+        Url::parse(&streaming_url)
+            .map_err(|e| MastodonError::ConnectionFailed(format!("Invalid streaming URL: {e}")))
+    }
+
+    /// Get the WebSocket streaming URL (for testing)
+    #[cfg(test)]
     fn get_streaming_url(&self) -> Result<Url, MastodonError> {
         let base_url = self.config.instance_url.trim_end_matches('/');
         let streaming_url = format!(
@@ -233,7 +259,7 @@ impl MastodonStream for MastodonClient {
             );
         }
 
-        let streaming_url = self.get_streaming_url()?;
+        let streaming_url = self.resolve_streaming_url().await?;
         debug!("Connecting to WebSocket URL: {}", streaming_url);
 
         let (ws_stream, response) = connect_async(streaming_url.as_str()).await.map_err(|e| {
