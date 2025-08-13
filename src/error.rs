@@ -382,11 +382,11 @@ mod tests {
         let size_error = MediaError::ImageTooLarge {
             width: 4000,
             height: 3000,
-            max_dimension: 1024,
+            max_dimension: 2048,
         };
         assert!(size_error.to_string().contains("Image too large"));
         assert!(size_error.to_string().contains("4000x3000"));
-        assert!(size_error.to_string().contains("1024"));
+        assert!(size_error.to_string().contains("2048"));
     }
 
     #[test]

@@ -200,7 +200,7 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
     let media_processor =
         crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
             max_size_mb: config.media().max_size_mb.unwrap_or(10) as f64,
-            max_dimension: config.media().resize_max_dimension.unwrap_or(1024),
+            max_dimension: config.media().resize_max_dimension.unwrap_or(2048),
             supported_formats: config
                 .media()
                 .supported_formats

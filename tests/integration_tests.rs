@@ -29,7 +29,7 @@ fn create_test_config() -> Config {
                 "image/gif".to_string(),
                 "image/webp".to_string(),
             ]),
-            resize_max_dimension: Some(1024),
+            resize_max_dimension: Some(2048),
         }),
         balance: Some(BalanceConfig {
             enabled: Some(false), // Disable for tests
@@ -393,7 +393,7 @@ async fn test_end_to_end_toot_processing_workflow() {
     let media_processor =
         alternator::media::MediaProcessor::with_image_transformer(alternator::media::MediaConfig {
             max_size_mb: 10.0,
-            max_dimension: 1024,
+            max_dimension: 2048,
             supported_formats: vec![
                 "image/jpeg".to_string(),
                 "image/png".to_string(),
@@ -457,7 +457,7 @@ async fn test_toot_processing_race_condition_handling() {
     let media_processor =
         alternator::media::MediaProcessor::with_image_transformer(alternator::media::MediaConfig {
             max_size_mb: 10.0,
-            max_dimension: 1024,
+            max_dimension: 2048,
             supported_formats: vec!["image/jpeg".to_string()].into_iter().collect(),
         });
 
@@ -490,7 +490,7 @@ async fn test_toot_processing_duplicate_prevention() {
     let media_processor =
         alternator::media::MediaProcessor::with_image_transformer(alternator::media::MediaConfig {
             max_size_mb: 10.0,
-            max_dimension: 1024,
+            max_dimension: 2048,
             supported_formats: vec!["image/jpeg".to_string()].into_iter().collect(),
         });
     let language_detector = alternator::language::LanguageDetector::new();

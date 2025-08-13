@@ -68,7 +68,7 @@ impl Default for MediaConfig {
                 "image/gif".to_string(),
                 "image/webp".to_string(),
             ]),
-            resize_max_dimension: Some(1024),
+            resize_max_dimension: Some(2048),
         }
     }
 }
@@ -305,7 +305,7 @@ mod tests {
     fn test_config_defaults() {
         let media = MediaConfig::default();
         assert_eq!(media.max_size_mb, Some(10));
-        assert_eq!(media.resize_max_dimension, Some(1024));
+        assert_eq!(media.resize_max_dimension, Some(2048));
         assert!(media
             .supported_formats
             .as_ref()
@@ -441,7 +441,7 @@ max_tokens = 150
 [media]
 max_size_mb = 10
 supported_formats = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-resize_max_dimension = 1024
+resize_max_dimension = 2048
 
 [balance]
 enabled = true

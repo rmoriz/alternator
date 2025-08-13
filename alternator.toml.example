@@ -49,9 +49,9 @@ max_size_mb = 10
 # Supported image formats (optional, default: JPEG, PNG, GIF, WebP)
 supported_formats = ["image/jpeg", "image/png", "image/gif", "image/webp"]
 
-# Maximum dimension for image resizing (optional, default: 1024)
+# Maximum dimension for image resizing (optional, default: 2048)
 # Images larger than this will be resized to fit within these dimensions
-resize_max_dimension = 1024
+resize_max_dimension = 2048
 
 [balance]
 # Enable balance monitoring (optional, default: true)

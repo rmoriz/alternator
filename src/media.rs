@@ -16,7 +16,7 @@ const SUPPORTED_IMAGE_FORMATS: &[&str] = &[
 ];
 
 /// Maximum dimension for image resizing (width or height)
-const DEFAULT_MAX_DIMENSION: u32 = 1024;
+const DEFAULT_MAX_DIMENSION: u32 = 2048;
 
 /// Maximum file size in MB for processing
 const DEFAULT_MAX_SIZE_MB: f64 = 10.0;
@@ -174,7 +174,7 @@ impl MediaTransformer for ImageTransformer {
                 })?;
             }
             ImageFormat::Jpeg => {
-                let encoder = JpegEncoder::new_with_quality(&mut output, 85);
+                let encoder = JpegEncoder::new_with_quality(&mut output, 75);
                 resized_img.write_with_encoder(encoder).map_err(|e| {
                     MediaError::EncodingFailed(format!("Failed to encode JPEG: {e}"))
                 })?;
@@ -512,7 +512,7 @@ mod tests {
     fn test_image_transformer_check_size_limits() {
         let config = MediaConfig {
             max_size_mb: 1.0, // 1MB limit
-            max_dimension: 1024,
+            max_dimension: 2048,
             supported_formats: SUPPORTED_IMAGE_FORMATS
                 .iter()
                 .map(|s| s.to_string())
