@@ -580,7 +580,7 @@ mod tests {
 
         let template = detector.get_prompt_template("en").unwrap();
         assert!(template.contains("alt-text"));
-        assert!(template.contains("200 characters"));
+        assert!(template.contains("1500 characters"));
         assert!(template.contains("description"));
     }
 
@@ -590,7 +590,7 @@ mod tests {
 
         let template = detector.get_prompt_template("de").unwrap();
         assert!(template.contains("Alt-Text"));
-        assert!(template.contains("200 Zeichen"));
+        assert!(template.contains("1500 Zeichen"));
         assert!(template.contains("NUR"));
     }
 
@@ -600,7 +600,7 @@ mod tests {
 
         let template = detector.get_prompt_template("fr").unwrap();
         assert!(template.contains("texte alternatif"));
-        assert!(template.contains("200 caractères"));
+        assert!(template.contains("1500 caractères"));
         assert!(template.contains("SEULEMENT"));
     }
 
@@ -611,7 +611,7 @@ mod tests {
         // Unsupported language should fall back to English
         let template = detector.get_prompt_template("xyz").unwrap();
         assert!(template.contains("alt-text"));
-        assert!(template.contains("200 characters"));
+        assert!(template.contains("1500 characters"));
     }
 
     #[test]
