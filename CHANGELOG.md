@@ -7,19 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.1.1] - 2025-08-13
+
+### Fixed
+- **Improved media deletion retry strategy** - Increased initial delay from 5s to 10s and implemented exponential backoff (10s, 20s, 40s)
+- Fixed GitHub workflow failures in CI/CD pipeline
+- Resolved test failures in OpenRouter client and language detection
+- Fixed formatting issues and clippy warnings
+- Updated release workflow to use modern GitHub CLI instead of deprecated actions
+
+### Technical Improvements
+- Replaced deprecated `actions/create-release@v1` and `actions/upload-release-asset@v1` with `gh` CLI
+- Added proper permissions for GitHub Actions workflows
+- Implemented custom Debug trait for OpenRouterClient to hide sensitive API keys
+- Enhanced media cleanup process to reduce race conditions with Mastodon API
+- More conservative approach to media deletion reduces API conflicts
+
+### CI/CD Enhancements
+- Added native macOS binary builds (Intel and Apple Silicon)
+- Fixed cross-compilation issues for Apple Darwin targets
+- Modernized release workflow with GitHub CLI
+- All 163 unit tests and 14 integration tests now pass consistently
+- Complete multi-platform support: Linux (AMD64/ARM64), macOS (Intel/Apple Silicon)
+
+## [0.1.0] - 2025-08-13
+
+### Changed (from Unreleased)
 - Migrated from OpenSSL/native-tls to rustls for improved security and static linking
 - **Simplified to musl-only Linux builds** - statically linked binaries work on all distributions (Alpine, Debian, Ubuntu, RHEL, etc.)
 - Optimized binary size with LTO and strip configuration
-
-### Technical Improvements
 - Replaced reqwest native-tls backend with rustls-tls
 - Replaced tokio-tungstenite native-tls with rustls-tls-webpki-roots
 - Eliminated separate glibc builds in favor of universal musl static binaries
 - Enhanced CI/CD workflows for simplified cross-platform deployment
 - Improved rate limiter implementation to avoid borrowing issues
-
-## [0.1.0] - 2025-08-13
 
 ### Added
 - Core toot processing pipeline with TootStreamHandler
