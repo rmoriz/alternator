@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Reduced description character limit to 1400** - Leaves room for AI attribution note
+- **Updated prompt templates for better length management** - LLM now manages total response length (description + attribution) within 1500 characters
 - **Added localized AI attribution to all descriptions** - Each description now ends with a note about AI generation including the model name in the appropriate language
 
 ### Enhanced

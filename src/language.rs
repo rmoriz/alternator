@@ -15,49 +15,49 @@ impl LanguageDetector {
         // English template (default)
         prompt_templates.insert(
             "en".to_string(),
-            "Create a concise, descriptive alt-text for this image (max 200 characters). Focus on key visual elements, actions, and context that would help visually impaired users understand the content. Be specific and objective. End your description with ' — this image description was made by AI: {model}' where {model} is the AI model name. Respond with ONLY the description text including the attribution.".to_string()
+            "Create a concise, descriptive alt-text for this image. Focus on key visual elements, actions, and context that would help visually impaired users understand the content. Be specific and objective. End your description with ' — this image description was made by AI: {model}' where {model} is the AI model name. Keep the TOTAL response (description + attribution) under 1500 characters. Respond with ONLY the description text including the attribution.".to_string()
         );
 
         // German template
         prompt_templates.insert(
             "de".to_string(),
-            "Erstelle eine prägnante, beschreibende Alt-Text-Beschreibung für dieses Bild (max. 200 Zeichen). Konzentriere dich auf wichtige visuelle Elemente, Handlungen und Kontext, die sehbehinderten Nutzern helfen würden. Sei spezifisch und objektiv. Beende deine Beschreibung mit ' — diese Bildbeschreibung wurde von KI erstellt: {model}' wobei {model} der Name des KI-Modells ist. Antworte NUR mit der Beschreibung inklusive Quellenangabe.".to_string()
+            "Erstelle eine prägnante, beschreibende Alt-Text-Beschreibung für dieses Bild. Konzentriere dich auf wichtige visuelle Elemente, Handlungen und Kontext, die sehbehinderten Nutzern helfen würden. Sei spezifisch und objektiv. Beende deine Beschreibung mit ' — diese Bildbeschreibung wurde von KI erstellt: {model}' wobei {model} der Name des KI-Modells ist. Halte die GESAMTE Antwort (Beschreibung + Quellenangabe) unter 1500 Zeichen. Antworte NUR mit der Beschreibung inklusive Quellenangabe.".to_string()
         );
 
         // French template
         prompt_templates.insert(
             "fr".to_string(),
-            "Créez un texte alternatif concis et descriptif pour cette image (max 200 caractères). Concentrez-vous sur les éléments visuels clés, les actions et le contexte qui aideraient les utilisateurs malvoyants. Soyez spécifique et objectif. Terminez votre description par ' — cette description d'image a été créée par IA : {model}' où {model} est le nom du modèle IA. Répondez SEULEMENT avec le texte de description incluant l'attribution.".to_string()
+            "Créez un texte alternatif concis et descriptif pour cette image. Concentrez-vous sur les éléments visuels clés, les actions et le contexte qui aideraient les utilisateurs malvoyants. Soyez spécifique et objectif. Terminez votre description par ' — cette description d'image a été créée par IA : {model}' où {model} est le nom du modèle IA. Gardez la réponse TOTALE (description + attribution) sous 1500 caractères. Répondez SEULEMENT avec le texte de description incluant l'attribution.".to_string()
         );
 
         // Spanish template
         prompt_templates.insert(
             "es".to_string(),
-            "Crea un texto alternativo conciso y descriptivo para esta imagen (máx. 200 caracteres). Enfócate en elementos visuales clave, acciones y contexto que ayudarían a usuarios con discapacidad visual. Sé específico y objetivo. Termina tu descripción con ' — esta descripción de imagen fue creada por IA: {model}' donde {model} es el nombre del modelo de IA. Responde SOLO con el texto de descripción incluyendo la atribución.".to_string()
+            "Crea un texto alternativo conciso y descriptivo para esta imagen. Enfócate en elementos visuales clave, acciones y contexto que ayudarían a usuarios con discapacidad visual. Sé específico y objetivo. Termina tu descripción con ' — esta descripción de imagen fue creada por IA: {model}' donde {model} es el nombre del modelo de IA. Mantén la respuesta TOTAL (descripción + atribución) bajo 1500 caracteres. Responde SOLO con el texto de descripción incluyendo la atribución.".to_string()
         );
 
         // Italian template
         prompt_templates.insert(
             "it".to_string(),
-            "Crea un testo alternativo conciso e descrittivo per questa immagine (max 200 caratteri). Concentrati su elementi visivi chiave, azioni e contesto che aiuterebbero gli utenti ipovedenti. Sii specifico e obiettivo. Termina la tua descrizione con ' — questa descrizione dell'immagine è stata creata dall'IA: {model}' dove {model} è il nome del modello IA. Rispondi SOLO con il testo di descrizione inclusa l'attribuzione.".to_string()
+            "Crea un testo alternativo conciso e descrittivo per questa immagine. Concentrati su elementi visivi chiave, azioni e contesto che aiuterebbero gli utenti ipovedenti. Sii specifico e obiettivo. Termina la tua descrizione con ' — questa descrizione dell'immagine è stata creata dall'IA: {model}' dove {model} è il nome del modello IA. Mantieni la risposta TOTALE (descrizione + attribuzione) sotto 1500 caratteri. Rispondi SOLO con il testo di descrizione inclusa l'attribuzione.".to_string()
         );
 
         // Portuguese template
         prompt_templates.insert(
             "pt".to_string(),
-            "Crie um texto alternativo conciso e descritivo para esta imagem (máx. 200 caracteres). Foque em elementos visuais chave, ações e contexto que ajudariam usuários com deficiência visual. Seja específico e objetivo. Termine sua descrição com ' — esta descrição de imagem foi criada por IA: {model}' onde {model} é o nome do modelo de IA. Responda APENAS com o texto de descrição incluindo a atribuição.".to_string()
+            "Crie um texto alternativo conciso e descritivo para esta imagem. Foque em elementos visuais chave, ações e contexto que ajudariam usuários com deficiência visual. Seja específico e objetivo. Termine sua descrição com ' — esta descrição de imagem foi criada por IA: {model}' onde {model} é o nome do modelo de IA. Mantenha a resposta TOTAL (descrição + atribuição) abaixo de 1500 caracteres. Responda APENAS com o texto de descrição incluindo a atribuição.".to_string()
         );
 
         // Dutch template
         prompt_templates.insert(
             "nl".to_string(),
-            "Maak een beknopte, beschrijvende alt-tekst voor deze afbeelding (max 200 tekens). Focus op belangrijke visuele elementen, acties en context die visueel gehandicapte gebruikers zouden helpen. Wees specifiek en objectief. Eindig je beschrijving met ' — deze afbeeldingsbeschrijving is gemaakt door AI: {model}' waarbij {model} de naam van het AI-model is. Antwoord ALLEEN met de beschrijvingstekst inclusief de vermelding.".to_string()
+            "Maak een beknopte, beschrijvende alt-tekst voor deze afbeelding. Focus op belangrijke visuele elementen, acties en context die visueel gehandicapte gebruikers zouden helpen. Wees specifiek en objectief. Eindig je beschrijving met ' — deze afbeeldingsbeschrijving is gemaakt door AI: {model}' waarbij {model} de naam van het AI-model is. Houd het TOTALE antwoord (beschrijving + vermelding) onder 1500 tekens. Antwoord ALLEEN met de beschrijvingstekst inclusief de vermelding.".to_string()
         );
 
         // Japanese template
         prompt_templates.insert(
             "ja".to_string(),
-            "この画像の簡潔で説明的な代替テキストを作成してください（200文字以内）。視覚障害者の方に役立つよう、重要な視覚要素、行動、文脈に焦点を当ててください。具体的で客観的に記述し、説明の最後に「 — この画像説明はAIによって作成されました：{model}」を追加してください（{model}はAIモデル名）。説明テキストと出典表示のみで回答してください。".to_string()
+            "この画像の簡潔で説明的な代替テキストを作成してください。視覚障害者の方に役立つよう、重要な視覚要素、行動、文脈に焦点を当ててください。具体的で客観的に記述し、説明の最後に「 — この画像説明はAIによって作成されました：{model}」を追加してください（{model}はAIモデル名）。全体の回答（説明＋出典表示）を1500文字以内に収めてください。説明テキストと出典表示のみで回答してください。".to_string()
         );
 
         Self { prompt_templates }

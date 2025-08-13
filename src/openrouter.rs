@@ -578,8 +578,8 @@ impl OpenRouterClient {
             ));
         }
 
-        // Ensure description respects character limit (1400 chars to leave room for AI attribution)
-        const MAX_DESCRIPTION_LENGTH: usize = 1400;
+        // Ensure description respects character limit (1500 chars total including AI attribution)
+        const MAX_DESCRIPTION_LENGTH: usize = 1500;
         let final_description = if description.chars().count() > MAX_DESCRIPTION_LENGTH {
             warn!(
                 "Description too long ({} chars), truncating to {} chars",
