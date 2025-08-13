@@ -1638,4 +1638,309 @@ mod tests {
         assert!(!ErrorRecovery::is_recoverable(&auth_error));
         assert!(ErrorRecovery::should_shutdown(&auth_error));
     }
+
+    #[test]
+    fn test_client_clone() {
+        let config = create_test_config();
+        let mut client = MastodonClient::new(config.clone());
+        client.authenticated_user_id = Some("test_user".to_string());
+        client.reconnect_attempts = 5;
+
+        let cloned_client = client.clone();
+
+        assert_eq!(cloned_client.config.instance_url, config.instance_url);
+        assert_eq!(cloned_client.config.access_token, config.access_token);
+        assert_eq!(
+            cloned_client.authenticated_user_id,
+            Some("test_user".to_string())
+        );
+        assert_eq!(cloned_client.reconnect_attempts, 5);
+        assert!(cloned_client.websocket.is_none()); // WebSocket connections can't be cloned
+    }
+
+    #[test]
+    fn test_stream_event_serialization() {
+        let stream_event = StreamEvent {
+            event: "update".to_string(),
+            payload: Some("test payload".to_string()),
+        };
+
+        let json = serde_json::to_string(&stream_event).unwrap();
+        assert!(json.contains("update"));
+        assert!(json.contains("test payload"));
+
+        let deserialized: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.event, "update");
+        assert_eq!(deserialized.payload, Some("test payload".to_string()));
+    }
+
+    #[test]
+    fn test_stream_event_without_payload() {
+        let stream_event = StreamEvent {
+            event: "heartbeat".to_string(),
+            payload: None,
+        };
+
+        let json = serde_json::to_string(&stream_event).unwrap();
+        assert!(json.contains("heartbeat"));
+
+        let deserialized: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.event, "heartbeat");
+        assert!(deserialized.payload.is_none());
+    }
+
+    #[test]
+    fn test_media_dimensions_serialization() {
+        let dimensions = MediaDimensions {
+            width: Some(1920),
+            height: Some(1080),
+            size: Some("1920x1080".to_string()),
+            aspect: Some(1.777),
+        };
+
+        let json = serde_json::to_string(&dimensions).unwrap();
+        assert!(json.contains("1920"));
+        assert!(json.contains("1080"));
+        assert!(json.contains("1.777"));
+
+        let deserialized: MediaDimensions = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.width, Some(1920));
+        assert_eq!(deserialized.height, Some(1080));
+        assert_eq!(deserialized.aspect, Some(1.777));
+    }
+
+    #[test]
+    fn test_media_meta_serialization() {
+        let meta = MediaMeta {
+            original: Some(MediaDimensions {
+                width: Some(1920),
+                height: Some(1080),
+                size: Some("1920x1080".to_string()),
+                aspect: Some(1.777),
+            }),
+            small: Some(MediaDimensions {
+                width: Some(400),
+                height: Some(225),
+                size: Some("400x225".to_string()),
+                aspect: Some(1.777),
+            }),
+        };
+
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("1920"));
+        assert!(json.contains("400"));
+
+        let deserialized: MediaMeta = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.original.is_some());
+        assert!(deserialized.small.is_some());
+    }
+
+    #[test]
+    fn test_account_serialization() {
+        let account = Account {
+            id: "user123".to_string(),
+            username: "testuser".to_string(),
+            acct: "testuser@mastodon.social".to_string(),
+            display_name: "Test User".to_string(),
+            url: "https://mastodon.social/@testuser".to_string(),
+        };
+
+        let json = serde_json::to_string(&account).unwrap();
+        assert!(json.contains("user123"));
+        assert!(json.contains("testuser"));
+        assert!(json.contains("Test User"));
+
+        let deserialized: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "user123");
+        assert_eq!(deserialized.username, "testuser");
+        assert_eq!(deserialized.display_name, "Test User");
+    }
+
+    #[test]
+    fn test_extract_text_from_html_complex_cases() {
+        // Test nested tags
+        assert_eq!(
+            MastodonClient::extract_text_from_html("<p>Hello <strong>world</strong>!</p>"),
+            "Hello world!"
+        );
+
+        // Test multiple HTML entities
+        assert_eq!(
+            MastodonClient::extract_text_from_html(
+                "&lt;test&gt; &amp; &quot;quoted&quot; &#39;text&#39; &nbsp;space"
+            ),
+            "<test> & \"quoted\" 'text'  space"
+        );
+
+        // Test malformed HTML
+        assert_eq!(
+            MastodonClient::extract_text_from_html("<p>Unclosed tag"),
+            "Unclosed tag"
+        );
+
+        // Test mixed content
+        assert_eq!(
+            MastodonClient::extract_text_from_html("Before <span>middle</span> after"),
+            "Before middle after"
+        );
+    }
+
+    #[test]
+    fn test_parse_streaming_event_malformed_payload() {
+        let config = create_test_config();
+        let client = MastodonClient::new(config);
+
+        // Test event with malformed JSON payload
+        let malformed_event = StreamEvent {
+            event: "update".to_string(),
+            payload: Some("{invalid json}".to_string()),
+        };
+        let message = serde_json::to_string(&malformed_event).unwrap();
+
+        let result = client.parse_streaming_event(&message);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MastodonError::InvalidTootData(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_streaming_event_empty_payload() {
+        let config = create_test_config();
+        let client = MastodonClient::new(config);
+
+        // Test event with empty payload
+        let empty_event = StreamEvent {
+            event: "update".to_string(),
+            payload: Some("".to_string()),
+        };
+        let message = serde_json::to_string(&empty_event).unwrap();
+
+        let result = client.parse_streaming_event(&message);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_streaming_url_with_custom_stream() {
+        let mut config = create_test_config();
+        config.user_stream = Some(false);
+        let client = MastodonClient::new(config);
+
+        let url = client.get_streaming_url().unwrap();
+        // Should still default to user stream even when config says false
+        // (this is the current behavior based on the implementation)
+        assert!(url.as_str().contains("stream=user"));
+    }
+
+    #[test]
+    fn test_streaming_url_with_trailing_slash() {
+        let mut config = create_test_config();
+        config.instance_url = "https://mastodon.social/".to_string();
+        let client = MastodonClient::new(config);
+
+        let url = client.get_streaming_url().unwrap();
+        // Should handle trailing slash correctly
+        assert!(url
+            .as_str()
+            .starts_with("wss://mastodon.social/api/v1/streaming"));
+    }
+
+    #[test]
+    fn test_streaming_url_invalid_instance_url() {
+        let mut config = create_test_config();
+        config.instance_url = "not-a-valid-url".to_string();
+        let client = MastodonClient::new(config);
+
+        let result = client.get_streaming_url();
+        assert!(result.is_err());
+        // The exact error type will depend on URL parsing implementation
+    }
+
+    #[test]
+    fn test_toot_event_with_different_visibility() {
+        let visibilities = ["public", "unlisted", "private", "direct"];
+
+        for visibility in visibilities {
+            let toot = TootEvent {
+                id: "test".to_string(),
+                account: Account {
+                    id: "user".to_string(),
+                    username: "user".to_string(),
+                    acct: "user".to_string(),
+                    display_name: "User".to_string(),
+                    url: "https://example.com".to_string(),
+                },
+                content: "test".to_string(),
+                language: Some("en".to_string()),
+                media_attachments: vec![],
+                created_at: Utc::now(),
+                url: Some("https://example.com/test".to_string()),
+                visibility: visibility.to_string(),
+            };
+
+            assert_eq!(toot.visibility, visibility);
+
+            // Test serialization/deserialization
+            let json = serde_json::to_string(&toot).unwrap();
+            let deserialized: TootEvent = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized.visibility, visibility);
+        }
+    }
+
+    #[test]
+    fn test_media_attachment_different_types() {
+        let media_types = ["image", "video", "gifv", "audio", "unknown"];
+
+        for media_type in media_types {
+            let media = MediaAttachment {
+                id: "test".to_string(),
+                media_type: media_type.to_string(),
+                url: "https://example.com/media".to_string(),
+                preview_url: None,
+                description: None,
+                meta: None,
+            };
+
+            assert_eq!(media.media_type, media_type);
+
+            // Test serialization uses correct field name "type"
+            let json = serde_json::to_string(&media).unwrap();
+            assert!(json.contains(&format!("\"type\":\"{media_type}\"")));
+
+            let deserialized: MediaAttachment = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized.media_type, media_type);
+        }
+    }
+
+    #[test]
+    fn test_toot_event_optional_fields() {
+        // Test toot with minimal fields
+        let minimal_toot = TootEvent {
+            id: "test".to_string(),
+            account: Account {
+                id: "user".to_string(),
+                username: "user".to_string(),
+                acct: "user".to_string(),
+                display_name: "User".to_string(),
+                url: "https://example.com".to_string(),
+            },
+            content: "test".to_string(),
+            language: None,
+            media_attachments: vec![],
+            created_at: Utc::now(),
+            url: None,
+            visibility: "public".to_string(),
+        };
+
+        assert!(minimal_toot.language.is_none());
+        assert!(minimal_toot.url.is_none());
+        assert!(minimal_toot.media_attachments.is_empty());
+
+        // Test serialization/deserialization
+        let json = serde_json::to_string(&minimal_toot).unwrap();
+        let deserialized: TootEvent = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.language.is_none());
+        assert!(deserialized.url.is_none());
+    }
 }

@@ -90,7 +90,7 @@ pub struct ImageDescriptionRequest {
 }
 
 /// Reasoning configuration for controlling reasoning tokens
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReasoningConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<bool>,
@@ -102,13 +102,13 @@ pub struct ReasoningConfig {
     pub max_tokens: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
     pub content: Vec<ContentPart>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ContentPart {
     #[serde(rename = "text")]
@@ -117,7 +117,7 @@ pub enum ContentPart {
     ImageUrl { image_url: ImageUrl },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ImageUrl {
     pub url: String,
 }
@@ -129,21 +129,21 @@ pub struct ImageDescriptionResponse {
     pub usage: Option<Usage>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Choice {
     pub message: ResponseMessage,
     #[allow(dead_code)] // May be used for response validation in future
     pub finish_reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
@@ -162,7 +162,7 @@ pub struct ErrorResponse {
     pub error: ErrorDetail,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorDetail {
     pub message: String,
     #[allow(dead_code)] // May be used for error categorization in future
@@ -967,5 +967,411 @@ mod tests {
         // Should not panic and should be valid
         assert!(!preview.is_empty());
         assert!(preview.chars().count() <= 103); // 100 + "..."
+    }
+
+    #[test]
+    fn test_rate_limiter_concurrent_permits() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let rate_limiter = Arc::new(tokio::sync::Mutex::new(RateLimiter::new(2, 50)));
+
+            // Test that we can acquire multiple permits concurrently
+            let rate_limiter1 = rate_limiter.clone();
+            let rate_limiter2 = rate_limiter.clone();
+
+            let task1 = tokio::spawn(async move {
+                let mut guard = rate_limiter1.lock().await;
+                let permit = guard.acquire().await;
+                drop(permit);
+            });
+
+            let task2 = tokio::spawn(async move {
+                let mut guard = rate_limiter2.lock().await;
+                let permit = guard.acquire().await;
+                drop(permit);
+            });
+
+            // Both tasks should complete without hanging
+            tokio::try_join!(task1, task2).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_openrouter_config_defaults() {
+        let config = OpenRouterConfig {
+            api_key: "test".to_string(),
+            model: "test-model".to_string(),
+            base_url: None,
+            max_tokens: None,
+        };
+
+        let client = OpenRouterClient::new(config);
+        assert_eq!(client.base_url(), "https://openrouter.ai/api/v1");
+        assert!(client.config.max_tokens.is_none());
+    }
+
+    #[test]
+    fn test_model_pricing_serialization() {
+        let pricing = ModelPricing {
+            prompt: "0.001".to_string(),
+            completion: "0.003".to_string(),
+        };
+
+        let json = serde_json::to_string(&pricing).unwrap();
+        assert!(json.contains("0.001"));
+        assert!(json.contains("0.003"));
+
+        let deserialized: ModelPricing = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.prompt, "0.001");
+        assert_eq!(deserialized.completion, "0.003");
+    }
+
+    #[test]
+    fn test_model_serialization() {
+        let model = Model {
+            id: "test-model".to_string(),
+            name: "Test Model".to_string(),
+            description: Some("A test model".to_string()),
+            pricing: Some(ModelPricing {
+                prompt: "0.001".to_string(),
+                completion: "0.003".to_string(),
+            }),
+            context_length: Some(4096),
+        };
+
+        let json = serde_json::to_string(&model).unwrap();
+        assert!(json.contains("test-model"));
+        assert!(json.contains("Test Model"));
+        assert!(json.contains("4096"));
+
+        let deserialized: Model = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "test-model");
+        assert_eq!(deserialized.name, "Test Model");
+        assert_eq!(deserialized.context_length, Some(4096));
+    }
+
+    #[test]
+    fn test_reasoning_config_serialization() {
+        let reasoning = ReasoningConfig {
+            exclude: Some(true),
+            enabled: Some(false),
+            effort: Some("high".to_string()),
+            max_tokens: Some(100),
+        };
+
+        let json = serde_json::to_string(&reasoning).unwrap();
+        assert!(json.contains("true"));
+        assert!(json.contains("false"));
+        assert!(json.contains("high"));
+        assert!(json.contains("100"));
+
+        let deserialized: ReasoningConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.exclude, Some(true));
+        assert_eq!(deserialized.enabled, Some(false));
+        assert_eq!(deserialized.effort, Some("high".to_string()));
+        assert_eq!(deserialized.max_tokens, Some(100));
+    }
+
+    #[test]
+    fn test_content_part_text_serialization() {
+        let content = ContentPart::Text {
+            text: "Describe this image".to_string(),
+        };
+
+        let json = serde_json::to_value(&content).unwrap();
+        assert_eq!(json["type"], "text");
+        assert_eq!(json["text"], "Describe this image");
+
+        let deserialized: ContentPart = serde_json::from_value(json).unwrap();
+        match deserialized {
+            ContentPart::Text { text } => assert_eq!(text, "Describe this image"),
+            _ => panic!("Expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn test_content_part_image_url_serialization() {
+        let content = ContentPart::ImageUrl {
+            image_url: ImageUrl {
+                url: "data:image/jpeg;base64,test".to_string(),
+            },
+        };
+
+        let json = serde_json::to_value(&content).unwrap();
+        assert_eq!(json["type"], "image_url");
+        assert_eq!(json["image_url"]["url"], "data:image/jpeg;base64,test");
+
+        let deserialized: ContentPart = serde_json::from_value(json).unwrap();
+        match deserialized {
+            ContentPart::ImageUrl { image_url } => {
+                assert_eq!(image_url.url, "data:image/jpeg;base64,test")
+            }
+            _ => panic!("Expected ImageUrl variant"),
+        }
+    }
+
+    #[test]
+    fn test_message_serialization() {
+        let message = Message {
+            role: "user".to_string(),
+            content: vec![
+                ContentPart::Text {
+                    text: "Describe".to_string(),
+                },
+                ContentPart::ImageUrl {
+                    image_url: ImageUrl {
+                        url: "data:image/jpeg;base64,test".to_string(),
+                    },
+                },
+            ],
+        };
+
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["role"], "user");
+        assert_eq!(json["content"][0]["type"], "text");
+        assert_eq!(json["content"][1]["type"], "image_url");
+
+        let deserialized: Message = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.role, "user");
+        assert_eq!(deserialized.content.len(), 2);
+    }
+
+    #[test]
+    fn test_token_usage_serialization() {
+        let usage = Usage {
+            prompt_tokens: Some(100),
+            completion_tokens: Some(50),
+            total_tokens: Some(150),
+        };
+
+        let json = serde_json::to_string(&usage).unwrap();
+        assert!(json.contains("100"));
+        assert!(json.contains("50"));
+        assert!(json.contains("150"));
+
+        let deserialized: Usage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.prompt_tokens, Some(100));
+        assert_eq!(deserialized.completion_tokens, Some(50));
+        assert_eq!(deserialized.total_tokens, Some(150));
+    }
+
+    #[test]
+    fn test_response_message_serialization() {
+        let message = ResponseMessage {
+            content: "A beautiful image".to_string(),
+            reasoning: Some("I can see a beautiful sunset".to_string()),
+        };
+
+        let json = serde_json::to_string(&message).unwrap();
+        assert!(json.contains("A beautiful image"));
+        assert!(json.contains("I can see a beautiful sunset"));
+
+        let deserialized: ResponseMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.content, "A beautiful image");
+        assert_eq!(
+            deserialized.reasoning,
+            Some("I can see a beautiful sunset".to_string())
+        );
+    }
+
+    #[test]
+    fn test_choice_serialization() {
+        let choice = Choice {
+            message: ResponseMessage {
+                content: "Description".to_string(),
+                reasoning: None,
+            },
+            finish_reason: Some("stop".to_string()),
+        };
+
+        let json = serde_json::to_string(&choice).unwrap();
+        assert!(json.contains("Description"));
+        assert!(json.contains("stop"));
+
+        let deserialized: Choice = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.message.content, "Description");
+        assert_eq!(deserialized.finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_error_detail_serialization() {
+        let error = ErrorDetail {
+            message: "Invalid request".to_string(),
+            code: Some("invalid_request".to_string()),
+            error_type: Some("validation_error".to_string()),
+        };
+
+        let json = serde_json::to_string(&error).unwrap();
+        assert!(json.contains("Invalid request"));
+        assert!(json.contains("invalid_request"));
+        assert!(json.contains("validation_error"));
+
+        let deserialized: ErrorDetail = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.message, "Invalid request");
+        assert_eq!(deserialized.code, Some("invalid_request".to_string()));
+        assert_eq!(
+            deserialized.error_type,
+            Some("validation_error".to_string())
+        );
+    }
+
+    #[test]
+    fn test_openrouter_client_debug() {
+        let config = create_test_config();
+        let client = OpenRouterClient::new(config);
+
+        // Test that the client can be debug formatted
+        let debug_str = format!("{:?}", client);
+        assert!(debug_str.contains("OpenRouterClient"));
+        // Should not contain sensitive information like API key
+        assert!(!debug_str.contains("test_key"));
+    }
+
+    #[test]
+    fn test_rate_limiter_debug() {
+        let rate_limiter = RateLimiter::new(5, 1000);
+        let debug_str = format!("{:?}", rate_limiter);
+        assert!(debug_str.contains("RateLimiter"));
+    }
+
+    #[test]
+    fn test_model_without_optional_fields() {
+        let model = Model {
+            id: "simple-model".to_string(),
+            name: "Simple Model".to_string(),
+            description: None,
+            pricing: None,
+            context_length: None,
+        };
+
+        let json = serde_json::to_string(&model).unwrap();
+        let deserialized: Model = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, "simple-model");
+        assert_eq!(deserialized.name, "Simple Model");
+        assert!(deserialized.description.is_none());
+        assert!(deserialized.pricing.is_none());
+        assert!(deserialized.context_length.is_none());
+    }
+
+    #[test]
+    fn test_reasoning_config_skip_serialization() {
+        // Test that None values are skipped in serialization
+        let reasoning = ReasoningConfig {
+            exclude: Some(true),
+            enabled: None,
+            effort: None,
+            max_tokens: None,
+        };
+
+        let json = serde_json::to_value(&reasoning).unwrap();
+        assert_eq!(json["exclude"], true);
+        assert!(!json.as_object().unwrap().contains_key("enabled"));
+        assert!(!json.as_object().unwrap().contains_key("effort"));
+        assert!(!json.as_object().unwrap().contains_key("max_tokens"));
+    }
+
+    #[test]
+    fn test_response_message_without_reasoning() {
+        let message = ResponseMessage {
+            content: "Simple description".to_string(),
+            reasoning: None,
+        };
+
+        let json = serde_json::to_string(&message).unwrap();
+        let deserialized: ResponseMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.content, "Simple description");
+        assert!(deserialized.reasoning.is_none());
+    }
+
+    #[test]
+    fn test_choice_without_finish_reason() {
+        let choice = Choice {
+            message: ResponseMessage {
+                content: "Description".to_string(),
+                reasoning: None,
+            },
+            finish_reason: None,
+        };
+
+        let json = serde_json::to_string(&choice).unwrap();
+        let deserialized: Choice = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.message.content, "Description");
+        assert!(deserialized.finish_reason.is_none());
+    }
+
+    #[test]
+    fn test_token_usage_optional_fields() {
+        let usage = Usage {
+            prompt_tokens: Some(100),
+            completion_tokens: None,
+            total_tokens: None,
+        };
+
+        let json = serde_json::to_string(&usage).unwrap();
+        let deserialized: Usage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.prompt_tokens, Some(100));
+        assert!(deserialized.completion_tokens.is_none());
+        assert!(deserialized.total_tokens.is_none());
+    }
+
+    #[test]
+    fn test_error_detail_optional_fields() {
+        let error = ErrorDetail {
+            message: "Simple error".to_string(),
+            code: None,
+            error_type: None,
+        };
+
+        let json = serde_json::to_string(&error).unwrap();
+        let deserialized: ErrorDetail = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.message, "Simple error");
+        assert!(deserialized.code.is_none());
+        assert!(deserialized.error_type.is_none());
+    }
+
+    #[test]
+    fn test_safe_truncate_boundary_conditions() {
+        // Test truncation exactly at word boundary
+        let text = "Hello world test";
+        let result = OpenRouterClient::safe_truncate(text, 11); // "Hello world" is 11 chars
+        assert_eq!(result, "Hello world");
+
+        // Test truncation just before word boundary
+        let result = OpenRouterClient::safe_truncate(text, 10); // One char short
+        assert_eq!(result, "Hello…");
+
+        // Test truncation with multiple consecutive spaces
+        let text_with_spaces = "Hello    world    test";
+        let result = OpenRouterClient::safe_truncate(text_with_spaces, 10);
+        assert!(result.chars().count() <= 11); // Should handle multiple spaces correctly
+    }
+
+    #[test]
+    fn test_sanitize_description_comprehensive() {
+        // Test various control characters
+        let input = "Text\x00with\x01various\x02control\x03chars\x1F";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "Textwithvariouscontrolchars");
+
+        // Test with mixed valid and invalid characters
+        let input = "Valid text\twith\ntabs and\r\nnewlines\x00but\x01also\x02control";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(
+            result,
+            "Valid text\twith\ntabs and\r\nnewlines\x00but\x01also\x02control"
+                .chars()
+                .filter(|c| !c.is_control() || *c == '\n' || *c == '\t' || *c == '\r')
+                .collect::<String>()
+        );
+
+        // Test empty and whitespace-only strings
+        let input = "   \t\n  ";
+        let result = OpenRouterClient::sanitize_description(input);
+        assert_eq!(result, "\t\n");
     }
 }

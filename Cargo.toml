@@ -11,8 +11,8 @@ authors = ["Roland Moriz <roland@moriz.de>"]
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
 toml = "0.8"
@@ -32,3 +32,9 @@ path = "src/lib.rs"
 [dev-dependencies]
 async-trait = "0.1"
 tempfile = "3.8"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"

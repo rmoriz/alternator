@@ -553,7 +553,7 @@ pub struct ProcessingStats {
 mod tests {
     use super::*;
     use crate::config::{MastodonConfig, OpenRouterConfig};
-    use crate::mastodon::{Account, MediaAttachment};
+    use crate::mastodon::{Account, MediaAttachment, MediaDimensions, MediaMeta};
     use chrono::Utc;
 
     fn create_test_mastodon_config() -> MastodonConfig {
@@ -775,5 +775,345 @@ mod tests {
 
         let debug_str = format!("{stats:?}");
         assert!(debug_str.contains("processed_toots_count: 42"));
+    }
+
+    #[tokio::test]
+    async fn test_process_toot_no_media() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        let toot = create_test_toot("123", vec![]);
+        let result = handler.process_toot(&toot).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_detect_toot_language_with_attribute() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        let mut toot = create_test_toot("123", vec![]);
+        toot.language = Some("fr".to_string());
+
+        let result = handler.detect_toot_language(&toot).unwrap();
+        assert_eq!(result, "fr");
+    }
+
+    #[test]
+    fn test_detect_toot_language_with_whitespace_attribute() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        let mut toot = create_test_toot("123", vec![]);
+        toot.language = Some("  ".to_string());
+        toot.content = "Bonjour le monde".to_string();
+
+        let result = handler.detect_toot_language(&toot).unwrap();
+        assert_eq!(result, "fr");
+    }
+
+    #[test]
+    fn test_detect_toot_language_fallback_to_english() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        let mut toot = create_test_toot("123", vec![]);
+        toot.language = None;
+        toot.content = "123 !@# %%% random symbols".to_string();
+
+        // Should fallback to English when detection fails
+        let result = handler.detect_toot_language(&toot).unwrap();
+        assert_eq!(result, "en");
+    }
+
+    #[test]
+    fn test_media_attachment_creation() {
+        let media = create_test_media("media123", "image", None);
+        assert_eq!(media.id, "media123");
+        assert_eq!(media.media_type, "image");
+        assert!(media.description.is_none());
+        assert_eq!(media.url, "https://example.com/media/media123");
+
+        let media_with_desc = create_test_media("media456", "video", Some("A video".to_string()));
+        assert_eq!(media_with_desc.description, Some("A video".to_string()));
+    }
+
+    #[test]
+    fn test_toot_event_creation() {
+        let media = vec![create_test_media("media1", "image", None)];
+        let toot = create_test_toot("toot123", media.clone());
+
+        assert_eq!(toot.id, "toot123");
+        assert_eq!(toot.account.username, "testuser");
+        assert_eq!(toot.content, "Test toot with image");
+        assert_eq!(toot.language, Some("en".to_string()));
+        assert_eq!(toot.media_attachments.len(), 1);
+        assert_eq!(toot.media_attachments[0].id, "media1");
+        assert_eq!(toot.visibility, "public");
+    }
+
+    #[test]
+    fn test_account_fields() {
+        let toot = create_test_toot("123", vec![]);
+        let account = &toot.account;
+
+        assert_eq!(account.id, "user123");
+        assert_eq!(account.username, "testuser");
+        assert_eq!(account.acct, "testuser@mastodon.social");
+        assert_eq!(account.display_name, "Test User");
+        assert_eq!(account.url, "https://mastodon.social/@testuser");
+    }
+
+    #[test]
+    fn test_handler_stats_increment() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let mut handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        assert_eq!(handler.get_processing_stats().processed_toots_count, 0);
+
+        handler.mark_as_processed("toot1".to_string());
+        assert_eq!(handler.get_processing_stats().processed_toots_count, 1);
+
+        handler.mark_as_processed("toot2".to_string());
+        handler.mark_as_processed("toot3".to_string());
+        assert_eq!(handler.get_processing_stats().processed_toots_count, 3);
+    }
+
+    #[test]
+    fn test_duplicate_toot_handling() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let mut handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        // Mark a toot as processed multiple times
+        handler.mark_as_processed("toot123".to_string());
+        handler.mark_as_processed("toot123".to_string());
+        handler.mark_as_processed("toot123".to_string());
+
+        // Should only count once
+        assert_eq!(handler.get_processing_stats().processed_toots_count, 1);
+        assert!(handler.is_already_processed("toot123"));
+    }
+
+    #[test]
+    fn test_cache_size_management() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let mut handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        // Test that cache management works properly
+        for i in 0..100 {
+            handler.mark_as_processed(format!("toot{i}"));
+        }
+
+        assert_eq!(handler.get_processing_stats().processed_toots_count, 100);
+
+        // Cache should still contain all items for reasonable sizes
+        for i in 0..100 {
+            assert!(handler.is_already_processed(&format!("toot{i}")));
+        }
+    }
+
+    #[test]
+    fn test_language_detection_priority() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        // Test that toot language attribute takes priority over content detection
+        let mut toot = create_test_toot("123", vec![]);
+        toot.language = Some("es".to_string());
+        toot.content = "Hello world this is English text".to_string();
+
+        let result = handler.detect_toot_language(&toot).unwrap();
+        assert_eq!(result, "es"); // Should use toot attribute, not content detection
+    }
+
+    #[test]
+    fn test_media_meta_creation() {
+        let media = MediaAttachment {
+            id: "media_test".to_string(),
+            media_type: "image".to_string(),
+            url: "https://example.com/test.jpg".to_string(),
+            preview_url: Some("https://example.com/preview.jpg".to_string()),
+            description: None,
+            meta: Some(MediaMeta {
+                original: Some(MediaDimensions {
+                    width: Some(1920),
+                    height: Some(1080),
+                    size: Some("1920x1080".to_string()),
+                    aspect: Some(1.777),
+                }),
+                small: Some(MediaDimensions {
+                    width: Some(400),
+                    height: Some(225),
+                    size: Some("400x225".to_string()),
+                    aspect: Some(1.777),
+                }),
+            }),
+        };
+
+        assert_eq!(media.id, "media_test");
+        assert!(media.preview_url.is_some());
+        assert!(media.meta.is_some());
+
+        let meta = media.meta.unwrap();
+        assert!(meta.original.is_some());
+        assert!(meta.small.is_some());
+
+        let original = meta.original.unwrap();
+        assert_eq!(original.width, Some(1920));
+        assert_eq!(original.height, Some(1080));
+        assert_eq!(original.aspect, Some(1.777));
+    }
+
+    #[test]
+    fn test_processing_stats_clone() {
+        let stats = ProcessingStats {
+            processed_toots_count: 15,
+        };
+
+        let cloned_stats = stats.clone();
+        assert_eq!(
+            stats.processed_toots_count,
+            cloned_stats.processed_toots_count
+        );
+    }
+
+    #[test]
+    fn test_toot_event_serialization() {
+        let media = vec![create_test_media(
+            "media1",
+            "image",
+            Some("Test image".to_string()),
+        )];
+        let toot = create_test_toot("toot123", media);
+
+        // Test that the toot can be serialized (important for debugging and logging)
+        let serialized = serde_json::to_string(&toot);
+        assert!(serialized.is_ok());
+
+        let json_str = serialized.unwrap();
+        assert!(json_str.contains("toot123"));
+        assert!(json_str.contains("media1"));
+        assert!(json_str.contains("Test image"));
+    }
+
+    #[test]
+    fn test_account_serialization() {
+        let toot = create_test_toot("123", vec![]);
+        let account = &toot.account;
+
+        let serialized = serde_json::to_string(account);
+        assert!(serialized.is_ok());
+
+        let json_str = serialized.unwrap();
+        assert!(json_str.contains("testuser"));
+        assert!(json_str.contains("Test User"));
+    }
+
+    #[test]
+    fn test_media_attachment_serialization() {
+        let media = create_test_media("media123", "video", Some("A test video".to_string()));
+
+        let serialized = serde_json::to_string(&media);
+        assert!(serialized.is_ok());
+
+        let json_str = serialized.unwrap();
+        assert!(json_str.contains("media123"));
+        assert!(json_str.contains("video"));
+        assert!(json_str.contains("A test video"));
+    }
+
+    #[test]
+    fn test_empty_content_language_detection() {
+        let mastodon_client = MastodonClient::new(create_test_mastodon_config());
+        let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
+        let media_processor = MediaProcessor::with_default_config();
+        let language_detector = LanguageDetector::new();
+
+        let handler = TootStreamHandler::new(
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+        );
+
+        let mut toot = create_test_toot("123", vec![]);
+        toot.language = None;
+        toot.content = "".to_string();
+
+        // Should fallback to English for empty content
+        let result = handler.detect_toot_language(&toot).unwrap();
+        assert_eq!(result, "en");
     }
 }

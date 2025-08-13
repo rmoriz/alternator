@@ -123,6 +123,22 @@ jobs:
             target: aarch64-unknown-linux-gnu
             artifact_name: alternator
             docker_arch: linux-arm64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: alternator
+            docker_arch: linux-amd64-musl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact_name: alternator
+            docker_arch: linux-arm64-musl
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: alternator
+            docker_arch: darwin-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: alternator
+            docker_arch: darwin-arm64
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -137,14 +153,14 @@ jobs:
       with:
         key: ${{ runner.os }}-${{ matrix.target }}-release
 
-    - name: Install cross-compilation tools (Linux ARM64)
-      if: matrix.target == 'aarch64-unknown-linux-gnu'
+    - name: Install cross-compilation tools
+      if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-musl'
       run: |
         cargo install cross --git https://github.com/cross-rs/cross
 
     - name: Build release binary
       run: |
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ] || [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ] || [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           cross build --release --target ${{ matrix.target }}
         else
           cargo build --release --target ${{ matrix.target }}
@@ -152,7 +168,7 @@ jobs:
 
     - name: Strip binary
       run: |
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ] || [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ] || [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
           # cross tool creates binaries that are already optimized
           ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         else
