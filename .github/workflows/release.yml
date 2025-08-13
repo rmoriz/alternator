@@ -18,10 +18,14 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Get version from tag or input
       id: get_version
       run: |
@@ -33,38 +37,19 @@ jobs:
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      run: |
+        gh release create ${{ steps.get_version.outputs.version }} \
+          --title "Alternator ${{ steps.get_version.outputs.version }}" \
+          --notes-file CHANGELOG.md \
+          --draft=false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.get_version.outputs.version }}
-        release_name: Alternator ${{ steps.get_version.outputs.version }}
-        body: |
-          ## Changes in ${{ steps.get_version.outputs.version }}
-          
-          ### Features
-          - Automated alt-text generation for Mastodon media attachments
-          - OpenRouter AI integration with cost controls
-          - Multi-language support for generated descriptions
-          - Balance monitoring with configurable notifications
-          - Race condition protection for manual edits
-          - Comprehensive error recovery and reconnection logic
-          
-          ### Platforms
-          - Linux (x86_64, aarch64) - statically linked musl binaries, compatible with all distributions
-          - macOS (x86_64, aarch64)
-          
-          The Linux binaries are statically linked and work on any distribution (Alpine, Debian, Ubuntu, RHEL, etc.).
-          
-          ### Installation
-          Download the appropriate binary for your platform and place it in your PATH.
-          See the README for configuration instructions.
-        draft: false
-        prerelease: false
 
   build-release:
     name: Build Release
     needs: create-release
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
