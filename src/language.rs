@@ -60,6 +60,102 @@ impl LanguageDetector {
             "この画像の簡潔で説明的な代替テキストを作成してください。視覚障害者の方に役立つよう、重要な視覚要素、行動、文脈に焦点を当ててください。具体的で客観的に記述し、説明の最後に「 — この画像説明はAIによって作成されました：{model}」を追加してください（{model}はAIモデル名）。全体の回答（説明＋出典表示）を1500文字以内に収めてください。説明テキストと出典表示のみで回答してください。".to_string()
         );
 
+        // Danish template
+        prompt_templates.insert(
+            "da".to_string(),
+            "Lav en kortfattet, beskrivende alt-tekst for dette billede. Fokuser på vigtige visuelle elementer, handlinger og kontekst, der ville hjælpe synshandicappede brugere. Vær specifik og objektiv. Afslut din beskrivelse med ' — denne billedbeskrivelse blev lavet af AI: {model}' hvor {model} er AI-modellens navn. Hold det SAMLEDE svar (beskrivelse + attribution) under 1500 tegn. Svar KUN med beskrivelsesteksten inklusive attributionen.".to_string()
+        );
+
+        // Swedish template
+        prompt_templates.insert(
+            "sv".to_string(),
+            "Skapa en kortfattad, beskrivande alt-text för denna bild. Fokusera på viktiga visuella element, handlingar och sammanhang som skulle hjälpa synskadade användare. Var specifik och objektiv. Avsluta din beskrivning med ' — denna bildbeskrivning skapades av AI: {model}' där {model} är AI-modellens namn. Håll det TOTALA svaret (beskrivning + attribution) under 1500 tecken. Svara ENDAST med beskrivningstexten inklusive attributionen.".to_string()
+        );
+
+        // Norwegian template
+        prompt_templates.insert(
+            "no".to_string(),
+            "Lag en kortfattet, beskrivende alt-tekst for dette bildet. Fokuser på viktige visuelle elementer, handlinger og kontekst som ville hjelpe synshemmede brukere. Vær spesifikk og objektiv. Avslutt beskrivelsen din med ' — denne billebeskrivelsen ble laget av AI: {model}' der {model} er AI-modellens navn. Hold det TOTALE svaret (beskrivelse + attribusjon) under 1500 tegn. Svar KUN med beskrivelsesteksten inkludert attribusjonen.".to_string()
+        );
+
+        // Icelandic template
+        prompt_templates.insert(
+            "is".to_string(),
+            "Búðu til stutta, lýsandi alt-texta fyrir þessa mynd. Einbeittu þér að mikilvægum sjónrænum þáttum, aðgerðum og samhengi sem myndi hjálpa sjónskertum notendum. Vertu nákvæm/ur og hlutlæg/ur. Endaðu lýsinguna þína með ' — þessi myndlýsing var búin til af gervigreind: {model}' þar sem {model} er nafn gervigreindarinnar. Haltu HEILDARSVARI (lýsing + tilvísun) undir 1500 stöfum. Svaraðu AÐEINS með lýsingartextanum ásamt tilvísuninni.".to_string()
+        );
+
+        // Scottish Gaelic template
+        prompt_templates.insert(
+            "gd".to_string(),
+            "Cruthaich alt-teacsa goirid, tuairisgeulach airson an deilbh seo. Cuir fòcas air feartan lèirsinneach cudromach, gnìomhan agus co-theacsa a chuidicheadh luchd-cleachdaidh le cion-lèirsinn. Bi sònraichte agus oibheachail. Crìochnaich an tuairisgeul agad le ' — chaidh an tuairisgeul deilbh seo a chruthachadh le AI: {model}' far a bheil {model} ainm a' mhodail AI. Cum am FREAGAIRT IOMLAN (tuairisgeul + buaidh) fo 1500 caractar. Freagair le DÌREACH an teacsa tuairisgeul a' gabhail a-steach a' bhuaidh.".to_string()
+        );
+
+        // Polish template
+        prompt_templates.insert(
+            "pl".to_string(),
+            "Stwórz zwięzły, opisowy tekst alternatywny dla tego obrazu. Skup się na kluczowych elementach wizualnych, działaniach i kontekście, które pomogłyby użytkownikom z wadami wzroku. Bądź konkretny i obiektywny. Zakończ swój opis ' — ten opis obrazu został stworzony przez AI: {model}' gdzie {model} to nazwa modelu AI. Utrzymaj CAŁKOWITĄ odpowiedź (opis + atrybucja) poniżej 1500 znaków. Odpowiedz TYLKO tekstem opisu wraz z atrybucją.".to_string()
+        );
+
+        // Czech template
+        prompt_templates.insert(
+            "cs".to_string(),
+            "Vytvořte stručný, popisný alt-text pro tento obrázek. Zaměřte se na klíčové vizuální prvky, akce a kontext, které by pomohly uživatelům se zrakovým postižením. Buďte konkrétní a objektivní. Ukončete svůj popis ' — tento popis obrázku byl vytvořen umělou inteligencí: {model}' kde {model} je název AI modelu. Udržte CELKOVOU odpověď (popis + atribuce) pod 1500 znaky. Odpovězte POUZE textem popisu včetně atribuce.".to_string()
+        );
+
+        // Hungarian template
+        prompt_templates.insert(
+            "hu".to_string(),
+            "Készítsen tömör, leíró alt-szöveget ehhez a képhez. Összpontosítson a kulcsfontosságú vizuális elemekre, cselekvésekre és kontextusra, amelyek segítenének a látássérült felhasználóknak. Legyen konkrét és objektív. Fejezze be a leírását ezzel: ' — ezt a képleírást mesterséges intelligencia készítette: {model}' ahol a {model} az AI modell neve. Tartsa a TELJES választ (leírás + forrásmegjelölés) 1500 karakter alatt. Válaszoljon CSAK a leíró szöveggel a forrásmegjelöléssel együtt.".to_string()
+        );
+
+        // Bulgarian template
+        prompt_templates.insert(
+            "bg".to_string(),
+            "Създайте кратък, описателен alt-текст за това изображение. Фокусирайте се върху ключови визуални елементи, действия и контекст, които биха помогнали на потребители със зрителни увреждания. Бъдете конкретни и обективни. Завършете описанието си с ' — това описание на изображението беше създадено от изкуствен интелект: {model}' където {model} е името на AI модела. Поддържайте ОБЩИЯ отговор (описание + атрибуция) под 1500 знака. Отговорете САМО с описателния текст заедно с атрибуцията.".to_string()
+        );
+
+        // Latin template
+        prompt_templates.insert(
+            "la".to_string(),
+            "Crea brevem, descriptivum alt-textum huic imagini. Attende ad elementa visualia principalia, actiones et contextum qui hominibus visu carentes adiuvent. Esto specificus et obiectivus. Fini descriptionem tuam cum ' — haec imaginis descriptio ab intelligentia artificiali facta est: {model}' ubi {model} est nomen exemplaris AI. Tene TOTAM responsionem (descriptionem + attributionem) sub 1500 characteribus. Responde SOLUM cum textu descriptivo una cum attributione.".to_string()
+        );
+
+        // Russian template
+        prompt_templates.insert(
+            "ru".to_string(),
+            "Создайте краткий, описательный alt-текст для этого изображения. Сосредоточьтесь на ключевых визуальных элементах, действиях и контексте, которые помогли бы пользователям с нарушениями зрения. Будьте конкретными и объективными. Завершите описание словами ' — это описание изображения было создано ИИ: {model}' где {model} - название модели ИИ. Держите ОБЩИЙ ответ (описание + атрибуция) менее 1500 символов. Отвечайте ТОЛЬКО описательным текстом вместе с атрибуцией.".to_string()
+        );
+
+        // Brazilian Portuguese template
+        prompt_templates.insert(
+            "pt-br".to_string(),
+            "Crie um texto alternativo conciso e descritivo para esta imagem. Foque em elementos visuais-chave, ações e contexto que ajudariam usuários com deficiência visual. Seja específico e objetivo. Termine sua descrição com ' — esta descrição de imagem foi criada por IA: {model}' onde {model} é o nome do modelo de IA. Mantenha a resposta TOTAL (descrição + atribuição) abaixo de 1500 caracteres. Responda APENAS com o texto descritivo incluindo a atribuição.".to_string()
+        );
+
+        // Indonesian template
+        prompt_templates.insert(
+            "id".to_string(),
+            "Buat teks alt yang ringkas dan deskriptif untuk gambar ini. Fokus pada elemen visual utama, tindakan, dan konteks yang akan membantu pengguna dengan gangguan penglihatan. Jadilah spesifik dan objektif. Akhiri deskripsi Anda dengan ' — deskripsi gambar ini dibuat oleh AI: {model}' di mana {model} adalah nama model AI. Jaga TOTAL respons (deskripsi + atribusi) di bawah 1500 karakter. Jawab HANYA dengan teks deskriptif termasuk atribusi.".to_string()
+        );
+
+        // Chinese Simplified template
+        prompt_templates.insert(
+            "zh-cn".to_string(),
+            "为这张图片创建简洁、描述性的替代文本。专注于关键的视觉元素、动作和背景，这些将帮助视觉障碍用户理解内容。要具体和客观。用' — 此图片描述由AI生成：{model}'结束您的描述，其中{model}是AI模型名称。保持总回复（描述+署名）在1500字符以下。仅回复描述文本包括署名。".to_string()
+        );
+
+        // Chinese Traditional template
+        prompt_templates.insert(
+            "zh-tw".to_string(),
+            "為這張圖片創建簡潔、描述性的替代文字。專注於關鍵的視覺元素、動作和背景，這些將幫助視覺障礙用戶理解內容。要具體和客觀。用' — 此圖片描述由AI生成：{model}'結束您的描述，其中{model}是AI模型名稱。保持總回覆（描述+署名）在1500字符以下。僅回覆描述文字包括署名。".to_string()
+        );
+
+        // Hindi template
+        prompt_templates.insert(
+            "hi".to_string(),
+            "इस छवि के लिए एक संक्षिप्त, वर्णनात्मक alt-text बनाएं। मुख्य दृश्य तत्वों, क्रियाओं और संदर्भ पर ध्यान दें जो दृष्टिबाधित उपयोगकर्ताओं की मदद करेगा। विशिष्ट और वस्तुनिष्ठ रहें। अपने विवरण को ' — यह छवि विवरण AI द्वारा बनाया गया था: {model}' के साथ समाप्त करें जहाँ {model} AI मॉडल का नाम है। कुल उत्तर (विवरण + श्रेय) को 1500 वर्णों के अंतर्गत रखें। केवल विवरणात्मक पाठ के साथ श्रेय सहित उत्तर दें।".to_string()
+        );
+
         Self { prompt_templates }
     }
 

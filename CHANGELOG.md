@@ -12,7 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Added localized AI attribution to all descriptions** - Each description now ends with a note about AI generation including the model name in the appropriate language
 
 ### Enhanced
-- **Multi-language AI attribution support** - Attribution notes in English, German, French, Spanish, Italian, Portuguese, Dutch, and Japanese
+- **Expanded multi-language AI attribution support** - Attribution notes now available in 25 languages:
+  - **Western European**: English, German, French, Spanish, Italian, Portuguese, Dutch
+  - **Nordic**: Danish, Swedish, Norwegian, Icelandic
+  - **Celtic**: Scottish Gaelic
+  - **Slavic**: Polish, Czech, Russian, Bulgarian
+  - **Other European**: Hungarian, Latin
+  - **Asian**: Japanese, Chinese (Simplified), Chinese (Traditional), Hindi, Indonesian
+  - **Regional variants**: Brazilian Portuguese
 
 ## [0.1.1] - 2025-08-13
 
