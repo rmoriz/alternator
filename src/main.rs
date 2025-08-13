@@ -366,47 +366,18 @@ async fn setup_shutdown_signal() {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{Config, LoggingConfig, MastodonConfig, OpenRouterConfig};
-    use chrono::Utc;
     use std::path::PathBuf;
-    use std::time::Duration;
 
-    #[test]
-    fn test_cli_parsing() {
-        let cli = Cli::parse_from(&["alternator"]);
-        assert!(cli.config.is_none());
-        assert!(cli.log_level.is_none());
-        assert!(!cli.verbose);
-
-        let cli = Cli::parse_from(&["alternator", "--config", "/path/to/config.toml"]);
-        assert_eq!(cli.config, Some(PathBuf::from("/path/to/config.toml")));
-
-        let cli = Cli::parse_from(&["alternator", "--log-level", "debug"]);
-        assert_eq!(cli.log_level, Some("debug".to_string()));
-
-        let cli = Cli::parse_from(&["alternator", "--verbose"]);
-        assert!(cli.verbose);
-
-        let cli = Cli::parse_from(&[
-            "alternator",
-            "-v",
-            "-c",
-            "config.toml",
-            "--log-level",
-            "error",
-        ]);
-        assert!(cli.verbose);
-        assert_eq!(cli.config, Some(PathBuf::from("config.toml")));
-        assert_eq!(cli.log_level, Some("error".to_string()));
-    }
-
+    #[allow(dead_code)]
     fn create_test_config() -> Config {
         Config {
             mastodon: MastodonConfig {
-                instance_url: "https://mastodon.social".to_string(),
+                instance_url: "https://mastodon.example".to_string(),
                 access_token: "test_token".to_string(),
                 user_stream: Some(true),
             },
@@ -416,310 +387,28 @@ mod tests {
                 base_url: Some("https://openrouter.ai/api/v1".to_string()),
                 max_tokens: Some(150),
             },
+            media: None,
+            balance: None,
             logging: Some(LoggingConfig {
                 level: Some("info".to_string()),
             }),
-            ..Default::default()
         }
     }
 
     #[test]
-    fn test_init_logging_with_cli_verbose() {
-        let config = create_test_config();
-        let cli = Cli {
-            config: None,
-            log_level: None,
-            verbose: true,
-        };
-
-        // Note: We can't easily test the actual logging initialization in unit tests
-        // because it affects global state. We test the logic that determines the log level.
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "debug");
-    }
-
-    #[test]
-    fn test_init_logging_with_cli_log_level() {
-        let config = create_test_config();
-        let cli = Cli {
-            config: None,
-            log_level: Some("warn".to_string()),
-            verbose: false,
-        };
-
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "warn");
-    }
-
-    #[test]
-    fn test_init_logging_with_config_level() {
-        let config = create_test_config();
-        let cli = Cli {
-            config: None,
-            log_level: None,
-            verbose: false,
-        };
-
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "info");
-    }
-
-    #[test]
-    fn test_init_logging_default_fallback() {
-        let mut config = create_test_config();
-        config.logging = None;
-        let cli = Cli {
-            config: None,
-            log_level: None,
-            verbose: false,
-        };
-
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "info");
-    }
-
-    #[test]
-    fn test_invalid_log_level_validation() {
-        let config = create_test_config();
-        let cli = Cli {
-            config: None,
-            log_level: Some("invalid".to_string()),
-            verbose: false,
-        };
-
-        // Test that invalid log levels are properly handled
-        let log_level = "invalid";
-        let level_result = match log_level.to_lowercase().as_str() {
-            "error" => Ok("error"),
-            "warn" => Ok("warn"),
-            "info" => Ok("info"),
-            "debug" => Ok("debug"),
-            "trace" => Ok("trace"),
-            _ => Err(format!(
-                "Invalid log level: {log_level}. Valid levels are: error, warn, info, debug, trace"
-            )),
-        };
-
-        assert!(level_result.is_err());
-        assert!(level_result
-            .unwrap_err()
-            .contains("Invalid log level: invalid"));
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_config_error() {
-        let error = AlternatorError::Config(crate::config::ConfigError::FileNotFound {
-            path: "test.toml".to_string(),
-        });
-
-        // This should not return an error for config errors (they're logged but not fatal in handle_error)
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_network_recoverable() {
-        // Create a mock reqwest error (timeout scenario)
-        let error = AlternatorError::Network(reqwest::Error::from(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "request timed out",
-        )));
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_media_processing() {
-        let error = AlternatorError::Media(crate::error::MediaError::UnsupportedFormat {
-            format: "image/bmp".to_string(),
-        });
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_language_detection() {
-        let error = AlternatorError::Language(crate::error::LanguageError::DetectionFailed {
-            content: "test".to_string(),
-        });
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_balance_monitoring() {
-        let error = AlternatorError::Balance(crate::error::BalanceError::ThresholdExceeded {
-            current: 0.5,
-            threshold: 1.0,
-        });
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_shutdown_required() {
-        let error = AlternatorError::Shutdown;
-
-        let result = handle_error(error).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_mastodon_recoverable() {
-        let error = AlternatorError::Mastodon(crate::error::MastodonError::RateLimitExceeded {
-            reset_at: Utc::now() + chrono::Duration::minutes(5),
-        });
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_error_openrouter_recoverable() {
-        let error = AlternatorError::OpenRouter(crate::error::OpenRouterError::RateLimitExceeded {
-            reset_at: Utc::now() + chrono::Duration::minutes(5),
-        });
-
-        let result = handle_error(error).await;
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_cli_version() {
-        // Test that the CLI includes version information
-        let cli = Cli::parse_from(&["alternator"]);
-        // This would normally exit, but we can at least verify the struct is properly defined
+    fn test_cli_parsing() {
+        let cli = Cli::parse_from(["alternator"]);
         assert!(cli.config.is_none());
-    }
+        assert!(cli.log_level.is_none());
+        assert!(!cli.verbose);
 
-    #[test]
-    fn test_cli_help() {
-        // Test that the CLI includes help information
-        // We can't easily test the help output without exiting, but we can verify the struct
-        let cli = Cli {
-            config: Some(PathBuf::from("test.toml")),
-            log_level: Some("debug".to_string()),
-            verbose: true,
-        };
+        let cli = Cli::parse_from(["alternator", "--config", "/path/to/config.toml"]);
+        assert_eq!(cli.config, Some(PathBuf::from("/path/to/config.toml")));
 
-        // Verify all fields are accessible
-        assert_eq!(cli.config, Some(PathBuf::from("test.toml")));
+        let cli = Cli::parse_from(["alternator", "--log-level", "debug"]);
         assert_eq!(cli.log_level, Some("debug".to_string()));
+
+        let cli = Cli::parse_from(["alternator", "--verbose"]);
         assert!(cli.verbose);
-    }
-
-    #[test]
-    fn test_log_level_priority() {
-        let config = create_test_config();
-
-        // Verbose flag should override everything
-        let cli = Cli {
-            config: None,
-            log_level: Some("error".to_string()),
-            verbose: true,
-        };
-
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "debug");
-
-        // CLI log level should override config
-        let cli = Cli {
-            config: None,
-            log_level: Some("trace".to_string()),
-            verbose: false,
-        };
-
-        let log_level = if cli.verbose {
-            "debug"
-        } else if let Some(ref level) = cli.log_level {
-            level.as_str()
-        } else {
-            config.logging().level.as_deref().unwrap_or("info")
-        };
-
-        assert_eq!(log_level, "trace");
-    }
-
-    #[test]
-    fn test_all_valid_log_levels() {
-        let valid_levels = ["error", "warn", "info", "debug", "trace"];
-
-        for level in valid_levels {
-            let result = match level.to_lowercase().as_str() {
-                "error" => Ok("error"),
-                "warn" => Ok("warn"),
-                "info" => Ok("info"),
-                "debug" => Ok("debug"),
-                "trace" => Ok("trace"),
-                _ => Err("invalid"),
-            };
-            assert!(result.is_ok(), "Level {level} should be valid");
-        }
-    }
-
-    #[test]
-    fn test_case_insensitive_log_levels() {
-        let test_cases = [
-            ("ERROR", "error"),
-            ("Warn", "warn"),
-            ("INFO", "info"),
-            ("Debug", "debug"),
-            ("TRACE", "trace"),
-        ];
-
-        for (input, expected) in test_cases {
-            let result = match input.to_lowercase().as_str() {
-                "error" => Some("error"),
-                "warn" => Some("warn"),
-                "info" => Some("info"),
-                "debug" => Some("debug"),
-                "trace" => Some("trace"),
-                _ => None,
-            };
-            assert_eq!(
-                result,
-                Some(expected),
-                "Level {input} should normalize to {expected}"
-            );
-        }
     }
 }

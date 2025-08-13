@@ -1221,7 +1221,7 @@ mod tests {
         let client = OpenRouterClient::new(config);
 
         // Test that the client can be debug formatted
-        let debug_str = format!("{:?}", client);
+        let debug_str = format!("{client:?}");
         assert!(debug_str.contains("OpenRouterClient"));
         // Should not contain sensitive information like API key
         assert!(!debug_str.contains("test_key"));
@@ -1230,7 +1230,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_debug() {
         let rate_limiter = RateLimiter::new(5, 1000);
-        let debug_str = format!("{:?}", rate_limiter);
+        let debug_str = format!("{rate_limiter:?}");
         assert!(debug_str.contains("RateLimiter"));
     }
 
