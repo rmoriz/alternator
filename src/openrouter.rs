@@ -472,7 +472,7 @@ impl OpenRouterClient {
     ) -> Result<String, OpenRouterError> {
         // Replace {model} placeholder in prompt with actual model name
         let processed_prompt = prompt.replace("{model}", &self.config.model);
-        
+
         debug!(
             "Generating image description using model: {}",
             self.config.model
