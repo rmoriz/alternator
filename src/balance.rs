@@ -156,7 +156,7 @@ impl BalanceMonitor {
             .openrouter_client
             .get_account_balance()
             .await
-            .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {}", e)))?;
+            .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {e}")))?;
 
         self.last_check = Some(Utc::now());
 
@@ -215,10 +215,9 @@ impl BalanceMonitor {
     {
         let message = format!(
             "⚠️ OpenRouter Balance Alert\n\n\
-            Your OpenRouter account balance is ${:.2}, which is below the configured threshold of ${:.2}.\n\n\
+            Your OpenRouter account balance is ${balance:.2}, which is below the configured threshold of ${threshold:.2}.\n\n\
             Please top up your account to continue using Alternator's image description service.\n\n\
-            Visit: https://openrouter.ai/credits",
-            balance, threshold
+            Visit: https://openrouter.ai/credits"
         );
 
         info!("Sending low balance notification");
@@ -226,7 +225,7 @@ impl BalanceMonitor {
         mastodon_client
             .send_dm(&message)
             .await
-            .map_err(|e| BalanceError::NotificationFailed(format!("Failed to send DM: {}", e)))?;
+            .map_err(|e| BalanceError::NotificationFailed(format!("Failed to send DM: {e}")))?;
 
         info!("Low balance notification sent successfully");
         Ok(())
@@ -276,6 +275,7 @@ impl BalanceMonitor {
     }
 
     /// Perform an immediate balance check (for testing or manual triggers)
+    #[allow(dead_code)] // Public API for manual balance checks
     pub async fn check_now<M>(&mut self, mastodon_client: &M) -> Result<f64, BalanceError>
     where
         M: MastodonStream,
@@ -286,7 +286,7 @@ impl BalanceMonitor {
             .openrouter_client
             .get_account_balance()
             .await
-            .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {}", e)))?;
+            .map_err(|e| BalanceError::CheckFailed(format!("Failed to get balance: {e}")))?;
 
         self.last_check = Some(Utc::now());
 
@@ -334,6 +334,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)] // Test helper function
         fn with_failure() -> Self {
             Self {
                 sent_messages: Arc::new(Mutex::new(Vec::new())),
@@ -390,12 +391,14 @@ mod tests {
     }
 
     // Mock OpenRouter client for testing
+    #[allow(dead_code)] // Test helpers
     struct MockOpenRouterClient {
         balance: f64,
         should_fail: bool,
     }
 
     impl MockOpenRouterClient {
+        #[allow(dead_code)] // Test helper function
         fn new(balance: f64) -> Self {
             Self {
                 balance,
@@ -403,6 +406,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)] // Test helper function
         fn with_failure() -> Self {
             Self {
                 balance: 0.0,
@@ -410,6 +414,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)] // Test helper function
         async fn get_account_balance(&self) -> Result<f64, crate::error::OpenRouterError> {
             if self.should_fail {
                 return Err(crate::error::OpenRouterError::ApiRequestFailed(

@@ -78,6 +78,7 @@ pub struct MastodonClient {
 }
 
 /// Trait for Mastodon streaming operations
+#[allow(async_fn_in_trait)] // Internal trait for dependency injection in tests
 pub trait MastodonStream {
     async fn connect(&mut self) -> Result<(), MastodonError>;
     async fn listen(&mut self) -> Result<Option<TootEvent>, MastodonError>;
@@ -117,7 +118,7 @@ impl MastodonClient {
         );
 
         Url::parse(&streaming_url)
-            .map_err(|e| MastodonError::ConnectionFailed(format!("Invalid streaming URL: {}", e)))
+            .map_err(|e| MastodonError::ConnectionFailed(format!("Invalid streaming URL: {e}")))
     }
 
     /// Reconnect with exponential backoff
@@ -170,14 +171,14 @@ impl MastodonClient {
         debug!("Received WebSocket message: {}", message);
 
         let stream_event: StreamEvent = serde_json::from_str(message).map_err(|e| {
-            MastodonError::InvalidTootData(format!("Failed to parse stream event: {}", e))
+            MastodonError::InvalidTootData(format!("Failed to parse stream event: {e}"))
         })?;
 
         match stream_event.event.as_str() {
             "update" => {
                 if let Some(payload) = stream_event.payload {
                     let toot: TootEvent = serde_json::from_str(&payload).map_err(|e| {
-                        MastodonError::InvalidTootData(format!("Failed to parse toot: {}", e))
+                        MastodonError::InvalidTootData(format!("Failed to parse toot: {e}"))
                     })?;
 
                     debug!(
@@ -236,7 +237,7 @@ impl MastodonStream for MastodonClient {
         debug!("Connecting to WebSocket URL: {}", streaming_url);
 
         let (ws_stream, response) = connect_async(streaming_url.as_str()).await.map_err(|e| {
-            MastodonError::ConnectionFailed(format!("WebSocket connection failed: {}", e))
+            MastodonError::ConnectionFailed(format!("WebSocket connection failed: {e}"))
         })?;
 
         debug!(
@@ -316,10 +317,7 @@ impl MastodonStream for MastodonClient {
                 Some(Err(e)) => {
                     error!("WebSocket error: {}", e);
                     self.websocket = None;
-                    return Err(MastodonError::Disconnected(format!(
-                        "WebSocket error: {}",
-                        e
-                    )));
+                    return Err(MastodonError::Disconnected(format!("WebSocket error: {e}")));
                 }
                 None => {
                     warn!("WebSocket stream ended");
@@ -350,7 +348,7 @@ impl MastodonStream for MastodonClient {
             )
             .send()
             .await
-            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to fetch toot: {}", e)))?;
+            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to fetch toot: {e}")))?;
 
         if response.status() == 404 {
             return Err(MastodonError::TootNotFound {
@@ -366,7 +364,7 @@ impl MastodonStream for MastodonClient {
         }
 
         let toot: TootEvent = response.json().await.map_err(|e| {
-            MastodonError::InvalidTootData(format!("Failed to parse toot response: {}", e))
+            MastodonError::InvalidTootData(format!("Failed to parse toot response: {e}"))
         })?;
 
         debug!(
@@ -404,9 +402,7 @@ impl MastodonStream for MastodonClient {
             .form(&form_data)
             .send()
             .await
-            .map_err(|e| {
-                MastodonError::ApiRequestFailed(format!("Failed to update media: {}", e))
-            })?;
+            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to update media: {e}")))?;
 
         if response.status() == 404 {
             return Err(MastodonError::MediaNotFound {
@@ -429,8 +425,7 @@ impl MastodonStream for MastodonClient {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(MastodonError::ApiRequestFailed(format!(
-                "Media update failed with status {}: {}",
-                status, error_text
+                "Media update failed with status {status}: {error_text}"
             )));
         }
 
@@ -466,7 +461,7 @@ impl MastodonStream for MastodonClient {
             .form(&form_data)
             .send()
             .await
-            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to send DM: {}", e)))?;
+            .map_err(|e| MastodonError::ApiRequestFailed(format!("Failed to send DM: {e}")))?;
 
         if response.status() == 429 {
             let retry_after = response
@@ -483,8 +478,7 @@ impl MastodonStream for MastodonClient {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(MastodonError::ApiRequestFailed(format!(
-                "DM sending failed with status {}: {}",
-                status, error_text
+                "DM sending failed with status {status}: {error_text}"
             )));
         }
 
@@ -511,7 +505,7 @@ impl MastodonStream for MastodonClient {
             .send()
             .await
             .map_err(|e| {
-                MastodonError::ApiRequestFailed(format!("Failed to verify credentials: {}", e))
+                MastodonError::ApiRequestFailed(format!("Failed to verify credentials: {e}"))
             })?;
 
         if response.status() == 401 {
@@ -528,7 +522,7 @@ impl MastodonStream for MastodonClient {
         }
 
         let account: Account = response.json().await.map_err(|e| {
-            MastodonError::InvalidTootData(format!("Failed to parse account response: {}", e))
+            MastodonError::InvalidTootData(format!("Failed to parse account response: {e}"))
         })?;
 
         debug!(

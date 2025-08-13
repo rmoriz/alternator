@@ -272,6 +272,7 @@ impl Config {
     }
 
     /// Get the OpenRouter base URL with default fallback
+    #[allow(dead_code)] // Public API method, may be used in future
     pub fn openrouter_base_url(&self) -> &str {
         self.openrouter
             .base_url

@@ -35,6 +35,7 @@ struct Cli {
 }
 
 /// Initialize structured logging with proper error handling
+#[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
 fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
     // Determine log level from CLI args, config, or environment
     let log_level = if cli.verbose {
@@ -54,8 +55,7 @@ fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
         "trace" => Level::TRACE,
         _ => {
             return Err(AlternatorError::InvalidData(format!(
-                "Invalid log level: {}. Valid levels are: error, warn, info, debug, trace",
-                log_level
+                "Invalid log level: {log_level}. Valid levels are: error, warn, info, debug, trace"
             )));
         }
     };
@@ -63,7 +63,7 @@ fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
     // Create environment filter with fallback
     let env_filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(log_level))
-        .map_err(|e| AlternatorError::InvalidData(format!("Failed to create log filter: {}", e)))?;
+        .map_err(|e| AlternatorError::InvalidData(format!("Failed to create log filter: {e}")))?;
 
     // Initialize structured logging with timestamps and target information
     tracing_subscriber::fmt()
@@ -135,6 +135,7 @@ async fn handle_error(error: AlternatorError) -> Result<(), AlternatorError> {
 }
 
 #[tokio::main]
+#[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
 async fn main() -> Result<(), AlternatorError> {
     let cli = Cli::parse();
 
@@ -152,7 +153,7 @@ async fn main() -> Result<(), AlternatorError> {
 
     // Initialize structured logging
     if let Err(e) = init_logging(&config, &cli) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
         return Err(e);
     }
 
@@ -297,7 +298,7 @@ async fn startup_validation(
     let account = mastodon_client
         .verify_credentials()
         .await
-        .map_err(|e| AlternatorError::Mastodon(e))?;
+        .map_err(AlternatorError::Mastodon)?;
 
     info!(
         "✓ Mastodon connection validated - authenticated as: {} (@{})",
@@ -310,7 +311,7 @@ async fn startup_validation(
     let balance = openrouter_client
         .get_account_balance()
         .await
-        .map_err(|e| AlternatorError::OpenRouter(e))?;
+        .map_err(AlternatorError::OpenRouter)?;
 
     info!("✓ OpenRouter account balance: ${:.2}", balance);
 
@@ -318,7 +319,7 @@ async fn startup_validation(
     let models = openrouter_client
         .list_models()
         .await
-        .map_err(|e| AlternatorError::OpenRouter(e))?;
+        .map_err(AlternatorError::OpenRouter)?;
 
     info!(
         "✓ OpenRouter model validation complete - {} models available",

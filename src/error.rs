@@ -1,6 +1,9 @@
 use crate::config::ConfigError;
 use thiserror::Error;
 
+// Allow unused error variants as this is a comprehensive error handling system
+// and some variants may not be used in current implementation but are needed for completeness
+#[allow(dead_code)]
 #[derive(Error, Debug)]
 pub enum AlternatorError {
     #[error("Configuration error: {0}")]
@@ -42,9 +45,11 @@ pub enum AlternatorError {
     #[error("Application shutdown requested")]
     Shutdown,
 
+    #[allow(dead_code)] // May be used in future error handling
     #[error("Rate limit exceeded: {0}")]
     RateLimit(String),
 
+    #[allow(dead_code)] // May be used in future error handling
     #[error("Authentication failed: {0}")]
     Authentication(String),
 
@@ -85,6 +90,7 @@ pub enum MastodonError {
     RaceConditionDetected,
 }
 
+#[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness
 #[derive(Error, Debug, Clone)]
 pub enum OpenRouterError {
     #[error("API request failed: {0}")]
@@ -115,6 +121,7 @@ pub enum OpenRouterError {
     UnsupportedImageFormat { format: String },
 }
 
+#[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness
 #[derive(Error, Debug, Clone)]
 pub enum MediaError {
     #[error("Unsupported media type: {media_type}")]
@@ -143,6 +150,7 @@ pub enum MediaError {
     DownloadFailed { url: String },
 }
 
+#[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness
 #[derive(Error, Debug, Clone)]
 pub enum LanguageError {
     #[error("Language detection failed: {0}")]
@@ -158,6 +166,7 @@ pub enum LanguageError {
     InvalidLanguageCode { code: String },
 }
 
+#[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness
 #[derive(Error, Debug, Clone)]
 pub enum BalanceError {
     #[error("Balance check failed: {0}")]
@@ -246,16 +255,16 @@ impl ErrorRecovery {
                     exponential_delay.min(60)
                 }
             },
-            AlternatorError::OpenRouter(openrouter_error) => match openrouter_error {
+            AlternatorError::OpenRouter(OpenRouterError::RateLimitExceeded { retry_after }) => {
                 // Rate limit errors should respect the exact retry_after value
-                OpenRouterError::RateLimitExceeded { retry_after } => *retry_after,
-                _ => {
-                    // Apply exponential backoff, max 60 seconds
-                    let base_delay = 5;
-                    let exponential_delay = base_delay * 2_u64.pow(attempt.min(6));
-                    exponential_delay.min(60)
-                }
-            },
+                *retry_after
+            }
+            AlternatorError::OpenRouter(_) => {
+                // Apply exponential backoff, max 60 seconds
+                let base_delay = 5;
+                let exponential_delay = base_delay * 2_u64.pow(attempt.min(6));
+                exponential_delay.min(60)
+            }
             AlternatorError::Network(_) => {
                 // Apply exponential backoff, max 60 seconds
                 let base_delay = 2;
@@ -285,10 +294,8 @@ impl ErrorRecovery {
                 MastodonError::RateLimitExceeded { .. } => 3,
                 _ => 3,
             },
-            AlternatorError::OpenRouter(openrouter_error) => match openrouter_error {
-                OpenRouterError::RateLimitExceeded { .. } => 3,
-                _ => 3,
-            },
+            AlternatorError::OpenRouter(OpenRouterError::RateLimitExceeded { .. }) => 3,
+            AlternatorError::OpenRouter(_) => 3,
             AlternatorError::Network(_) => 5,
             AlternatorError::WebSocket(_) => 10,
             _ => 3,

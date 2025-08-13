@@ -261,6 +261,7 @@ impl TootStreamHandler {
     }
 
     /// Detect the language of a toot with fallback handling
+    #[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
     fn detect_toot_language(&self, content: &str) -> Result<String, AlternatorError> {
         match self.language_detector.detect_language(content) {
             Ok(lang) => Ok(lang),
@@ -362,6 +363,7 @@ impl TootStreamHandler {
     }
 
     /// Get statistics about processed toots
+    #[allow(dead_code)] // Public API method, may be used in future
     pub fn get_processing_stats(&self) -> ProcessingStats {
         ProcessingStats {
             processed_toots_count: self.processed_toots.len(),
@@ -376,6 +378,7 @@ impl TootStreamHandler {
 }
 
 /// Statistics about toot processing
+#[allow(dead_code)] // Stats struct for API completeness
 #[derive(Debug, Clone)]
 pub struct ProcessingStats {
     pub processed_toots_count: usize,
@@ -405,6 +408,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)] // Test helper function
     fn create_test_toot(id: &str, media_attachments: Vec<MediaAttachment>) -> TootEvent {
         TootEvent {
             id: id.to_string(),
@@ -424,6 +428,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)] // Test helper function
     fn create_test_media(
         id: &str,
         media_type: &str,
@@ -432,7 +437,7 @@ mod tests {
         MediaAttachment {
             id: id.to_string(),
             media_type: media_type.to_string(),
-            url: format!("https://example.com/media/{}", id),
+            url: format!("https://example.com/media/{id}"),
             preview_url: None,
             description,
             meta: None,
@@ -497,7 +502,7 @@ mod tests {
 
         // Add many processed toots to trigger cleanup
         for i in 0..10001 {
-            handler.mark_as_processed(format!("toot{}", i));
+            handler.mark_as_processed(format!("toot{i}"));
         }
 
         // Should have triggered cleanup
@@ -587,7 +592,7 @@ mod tests {
             processed_toots_count: 42,
         };
 
-        let debug_str = format!("{:?}", stats);
+        let debug_str = format!("{stats:?}");
         assert!(debug_str.contains("processed_toots_count: 42"));
     }
 }

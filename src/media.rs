@@ -71,15 +71,15 @@ impl ImageTransformer {
         Self { config }
     }
 
+    #[allow(dead_code)] // Convenience constructor for tests
     pub fn with_default_config() -> Self {
         Self::new(MediaConfig::default())
     }
 
     /// Detect image format from raw data
     fn detect_format(&self, data: &[u8]) -> Result<ImageFormat, MediaError> {
-        image::guess_format(data).map_err(|e| {
-            MediaError::DecodingFailed(format!("Failed to detect image format: {}", e))
-        })
+        image::guess_format(data)
+            .map_err(|e| MediaError::DecodingFailed(format!("Failed to detect image format: {e}")))
     }
 
     /// Resize image if it exceeds maximum dimensions
@@ -132,7 +132,7 @@ impl MediaTransformer for ImageTransformer {
 
         // Load image
         let img = image::load_from_memory(image_data)
-            .map_err(|e| MediaError::DecodingFailed(format!("Failed to decode image: {}", e)))?;
+            .map_err(|e| MediaError::DecodingFailed(format!("Failed to decode image: {e}")))?;
 
         // Resize if needed
         let resized_img = self.resize_if_needed(img);
@@ -146,20 +146,20 @@ impl MediaTransformer for ImageTransformer {
             ImageFormat::Png => {
                 let encoder = PngEncoder::new(&mut output);
                 resized_img.write_with_encoder(encoder).map_err(|e| {
-                    MediaError::EncodingFailed(format!("Failed to encode PNG: {}", e))
+                    MediaError::EncodingFailed(format!("Failed to encode PNG: {e}"))
                 })?;
             }
             ImageFormat::Jpeg => {
                 let encoder = JpegEncoder::new_with_quality(&mut output, 85);
                 resized_img.write_with_encoder(encoder).map_err(|e| {
-                    MediaError::EncodingFailed(format!("Failed to encode JPEG: {}", e))
+                    MediaError::EncodingFailed(format!("Failed to encode JPEG: {e}"))
                 })?;
             }
             _ => {
                 // Fallback to PNG for other formats
                 let encoder = PngEncoder::new(&mut output);
                 resized_img.write_with_encoder(encoder).map_err(|e| {
-                    MediaError::EncodingFailed(format!("Failed to encode fallback PNG: {}", e))
+                    MediaError::EncodingFailed(format!("Failed to encode fallback PNG: {e}"))
                 })?;
             }
         }
@@ -208,6 +208,7 @@ impl MediaProcessor {
         Self::new(Box::new(ImageTransformer::new(config)))
     }
 
+    #[allow(dead_code)] // Convenience constructor for tests
     pub fn with_default_config() -> Self {
         Self::with_image_transformer(MediaConfig::default())
     }
@@ -279,6 +280,7 @@ impl MediaProcessor {
     }
 
     /// Get statistics about media attachments
+    #[allow(dead_code)] // Public API method, may be used in future
     pub fn get_media_stats(&self, media_attachments: &[MediaAttachment]) -> MediaStats {
         let total = media_attachments.len();
         let supported = media_attachments
@@ -304,6 +306,7 @@ impl MediaProcessor {
 }
 
 /// Statistics about media processing
+#[allow(dead_code)] // Stats struct for API completeness
 #[derive(Debug, Clone)]
 pub struct MediaStats {
     pub total: usize,
@@ -324,7 +327,7 @@ mod tests {
         MediaAttachment {
             id: id.to_string(),
             media_type: media_type.to_string(),
-            url: format!("https://example.com/media/{}", id),
+            url: format!("https://example.com/media/{id}"),
             preview_url: None,
             description,
             meta: None,
@@ -531,7 +534,7 @@ mod tests {
         };
 
         // Test that stats can be formatted
-        let debug_str = format!("{:?}", stats);
+        let debug_str = format!("{stats:?}");
         assert!(debug_str.contains("total: 10"));
         assert!(debug_str.contains("supported: 8"));
         assert!(debug_str.contains("needs_description: 5"));

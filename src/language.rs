@@ -312,22 +312,23 @@ impl LanguageDetector {
                     normalized_lang
                 );
                 // Fall back to English template
-                self.prompt_templates
-                    .get("en")
-                    .map(|s| s.as_str())
-                    .ok_or_else(|| LanguageError::PromptTemplateNotFound {
+                self.prompt_templates.get("en").map(|s| s.as_str()).ok_or(
+                    LanguageError::PromptTemplateNotFound {
                         language: normalized_lang,
-                    })
+                    },
+                )
             }
         }
     }
 
     /// Get all supported languages
+    #[allow(dead_code)] // Public API method, may be used in future
     pub fn supported_languages(&self) -> Vec<&String> {
         self.prompt_templates.keys().collect()
     }
 
     /// Add or update a prompt template for a specific language
+    #[allow(dead_code)] // Public API method, may be used in future
     pub fn add_prompt_template(&mut self, language: String, template: String) {
         debug!("Adding prompt template for language: {}", language);
         self.prompt_templates.insert(language, template);
@@ -351,6 +352,7 @@ impl Default for LanguageDetector {
 }
 
 /// Trait for language detection and prompt management
+#[allow(dead_code)] // Trait for future extensibility
 pub trait LanguageService {
     /// Detect the language of the given text
     fn detect_language(&self, text: &str) -> Result<String, LanguageError>;
@@ -590,7 +592,7 @@ mod tests {
         // For now, just test that we can get the Japanese template
         // Our simple heuristic detection might not work perfectly for Japanese
         // In a real implementation, we'd use a proper language detection library
-        println!("Japanese detection result: {}", result);
+        println!("Japanese detection result: {result}");
     }
 
     #[test]

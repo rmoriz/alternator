@@ -117,6 +117,7 @@ pub struct ImageDescriptionResponse {
 #[derive(Debug, Deserialize)]
 pub struct Choice {
     pub message: ResponseMessage,
+    #[allow(dead_code)] // May be used for response validation in future
     pub finish_reason: Option<String>,
 }
 
@@ -147,8 +148,10 @@ pub struct ErrorResponse {
 #[derive(Debug, Deserialize)]
 pub struct ErrorDetail {
     pub message: String,
+    #[allow(dead_code)] // May be used for error categorization in future
     pub code: Option<String>,
     #[serde(rename = "type")]
+    #[allow(dead_code)] // May be used for error categorization in future
     pub error_type: Option<String>,
 }
 
@@ -208,7 +211,7 @@ impl OpenRouterClient {
         }
 
         let response_text = response.text().await.map_err(|e| {
-            OpenRouterError::ApiRequestFailed(format!("Failed to read response: {}", e))
+            OpenRouterError::ApiRequestFailed(format!("Failed to read response: {e}"))
         })?;
 
         if !status.is_success() {
@@ -242,15 +245,14 @@ impl OpenRouterClient {
             }
 
             return Err(OpenRouterError::ApiRequestFailed(format!(
-                "HTTP {} - {}",
-                status, response_text
+                "HTTP {status} - {response_text}"
             )));
         }
 
         serde_json::from_str(&response_text).map_err(|e| {
             error!("Failed to parse OpenRouter response: {}", e);
             debug!("Response text: {}", response_text);
-            OpenRouterError::InvalidResponse(format!("JSON parsing failed: {}", e))
+            OpenRouterError::InvalidResponse(format!("JSON parsing failed: {e}"))
         })
     }
 
@@ -282,7 +284,7 @@ impl OpenRouterClient {
                 .header("X-Title", "Alternator - Mastodon Media Describer")
                 .send()
                 .await
-                .map_err(|e| OpenRouterError::ApiRequestFailed(format!("Request failed: {}", e)))?;
+                .map_err(|e| OpenRouterError::ApiRequestFailed(format!("Request failed: {e}")))?;
 
             match self.handle_response::<T>(response).await {
                 Ok(result) => {
@@ -351,7 +353,7 @@ impl OpenRouterClient {
             .api_request_with_retry(
                 || {
                     self.http_client
-                        .get(&format!("{}/auth/key", self.base_url()))
+                        .get(format!("{}/auth/key", self.base_url()))
                 },
                 3,
             )
@@ -369,7 +371,7 @@ impl OpenRouterClient {
 
         let response: ModelsResponse = self
             .api_request_with_retry(
-                || self.http_client.get(&format!("{}/models", self.base_url())),
+                || self.http_client.get(format!("{}/models", self.base_url())),
                 3,
             )
             .await?;
@@ -417,7 +419,7 @@ impl OpenRouterClient {
 
         // Convert image to base64 data URL
         let base64_image = base64::prelude::BASE64_STANDARD.encode(image_data);
-        let data_url = format!("data:image/jpeg;base64,{}", base64_image);
+        let data_url = format!("data:image/jpeg;base64,{base64_image}");
 
         let request = ImageDescriptionRequest {
             model: self.config.model.clone(),
@@ -439,7 +441,7 @@ impl OpenRouterClient {
             .api_request_with_retry(
                 || {
                     self.http_client
-                        .post(&format!("{}/chat/completions", self.base_url()))
+                        .post(format!("{}/chat/completions", self.base_url()))
                         .json(&request)
                 },
                 2, // Only retry twice for image description to avoid excessive costs
