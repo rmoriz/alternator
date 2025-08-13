@@ -156,6 +156,84 @@ impl LanguageDetector {
             "इस छवि के लिए एक संक्षिप्त, वर्णनात्मक alt-text बनाएं। मुख्य दृश्य तत्वों, क्रियाओं और संदर्भ पर ध्यान दें जो दृष्टिबाधित उपयोगकर्ताओं की मदद करेगा। विशिष्ट और वस्तुनिष्ठ रहें। अपने विवरण को ' — यह छवि विवरण AI द्वारा बनाया गया था: {model}' के साथ समाप्त करें जहाँ {model} AI मॉडल का नाम है। कुल उत्तर (विवरण + श्रेय) को 1500 वर्णों के अंतर्गत रखें। केवल विवरणात्मक पाठ के साथ श्रेय सहित उत्तर दें।".to_string()
         );
 
+        // Swiss German template
+        prompt_templates.insert(
+            "gsw".to_string(),
+            "Mach en churze, beschribendi Alt-Text für das Bild. Konzentriere di uf wichtigi visuelli Element, Handlige und Kontext, wo sehbehinderte Nutzer würde hälfe. Sig spezifisch und objektiv. Beende dini Beschribig mit ' — die Bildbeschribig isch vo KI gmacht worde: {model}' wo {model} de Name vom KI-Modell isch. Halt d GSAMTI Antwort (Beschribig + Quälleaagab) under 1500 Zeiche. Antworte NUR mit em Beschribigtext inklusive Quälleaagab.".to_string()
+        );
+
+        // Slovak template
+        prompt_templates.insert(
+            "sk".to_string(),
+            "Vytvorte stručný, popisný alt-text pre tento obrázok. Zamerajte sa na kľúčové vizuálne prvky, akcie a kontext, ktoré by pomohli používateľom so zrakovým postihnutím. Buďte konkrétni a objektívni. Ukončite svoj popis ' — tento popis obrázka bol vytvorený umelou inteligenciou: {model}' kde {model} je názov AI modelu. Udržte CELKOVÚ odpoveď (popis + atribúcia) pod 1500 znakmi. Odpovedzte LEN textom popisu vrátane atribúcie.".to_string()
+        );
+
+        // Slovenian template
+        prompt_templates.insert(
+            "sl".to_string(),
+            "Ustvarite jedrnat, opisni alt-besedilo za to sliko. Osredotočite se na ključne vizualne elemente, dejanja in kontekst, ki bi pomagali uporabnikom z okvaro vida. Bodite specifični in objektivni. Končajte svoj opis z ' — ta opis slike je ustvarila umetna inteligenca: {model}' kjer je {model} ime AI modela. Ohranite CELOTEN odgovor (opis + atribucija) pod 1500 znaki. Odgovorite SAMO z opisnim besedilom vključno z atribucijo.".to_string()
+        );
+
+        // Croatian template
+        prompt_templates.insert(
+            "hr".to_string(),
+            "Stvorite sažet, opisni alt-tekst za ovu sliku. Usredotočite se na ključne vizualne elemente, radnje i kontekst koji bi pomogli korisnicima s oštećenjem vida. Budite specifični i objektivni. Završite svoj opis s ' — ovaj opis slike je stvoren umjetnom inteligencijom: {model}' gdje je {model} naziv AI modela. Držite UKUPAN odgovor (opis + atribucija) ispod 1500 znakova. Odgovorite SAMO opisnim tekstom uključujući atribuciju.".to_string()
+        );
+
+        // Bosnian template
+        prompt_templates.insert(
+            "bs".to_string(),
+            "Napravite sažet, opisni alt-tekst za ovu sliku. Fokusirajte se na ključne vizuelne elemente, radnje i kontekst koji bi pomogli korisnicima sa oštećenjem vida. Budite specifični i objektivni. Završite svoj opis sa ' — ovaj opis slike je napravljen umjetnom inteligencijom: {model}' gdje je {model} naziv AI modela. Držite UKUPAN odgovor (opis + atribucija) ispod 1500 znakova. Odgovorite SAMO opisnim tekstom uključujući atribuciju.".to_string()
+        );
+
+        // Serbian template
+        prompt_templates.insert(
+            "sr".to_string(),
+            "Направите сажет, описни алт-текст за ову слику. Фокусирајте се на кључне визуелне елементе, радње и контекст који би помогли корисницима са оштећењем вида. Будите специфични и објективни. Завршите свој опис са ' — овај опис слике је направљен вештачком интелигенцијом: {model}' где је {model} назив АИ модела. Држите УКУПАН одговор (опис + атрибуција) испод 1500 знакова. Одговорите САМО описним текстом укључујући атрибуцију.".to_string()
+        );
+
+        // Greek template
+        prompt_templates.insert(
+            "el".to_string(),
+            "Δημιουργήστε ένα συνοπτικό, περιγραφικό alt-κείμενο για αυτή την εικόνα. Εστιάστε σε βασικά οπτικά στοιχεία, ενέργειες και πλαίσιο που θα βοηθούσαν χρήστες με προβλήματα όρασης. Να είστε συγκεκριμένοι και αντικειμενικοί. Τελειώστε την περιγραφή σας με ' — αυτή η περιγραφή εικόνας δημιουργήθηκε από τεχνητή νοημοσύνη: {model}' όπου {model} είναι το όνομα του μοντέλου AI. Κρατήστε τη ΣΥΝΟΛΙΚΗ απάντηση (περιγραφή + απόδοση) κάτω από 1500 χαρακτήρες. Απαντήστε ΜΟΝΟ με το περιγραφικό κείμενο συμπεριλαμβανομένης της απόδοσης.".to_string()
+        );
+
+        // Lithuanian template
+        prompt_templates.insert(
+            "lt".to_string(),
+            "Sukurkite glaustą, aprašomąjį alt-tekstą šiam vaizdui. Sutelkite dėmesį į pagrindinius vizualinius elementus, veiksmus ir kontekstą, kurie padėtų naudotojams su regos sutrikimais. Būkite konkretūs ir objektyvūs. Užbaikite savo aprašymą ' — šis vaizdo aprašymas buvo sukurtas dirbtinio intelekto: {model}' kur {model} yra AI modelio pavadinimas. Išlaikykite BENDRĄ atsakymą (aprašymas + priskyrimas) žemiau 1500 simbolių. Atsakykite TIK aprašomuoju tekstu įskaitant priskyrimą.".to_string()
+        );
+
+        // Estonian template
+        prompt_templates.insert(
+            "et".to_string(),
+            "Looge lühike, kirjeldav alt-tekst sellele pildile. Keskenduge olulistele visuaalsetele elementidele, tegevustele ja kontekstile, mis aitaksid nägemispuudega kasutajaid. Olge konkreetne ja objektiivne. Lõpetage oma kirjeldus ' — see pildikirjeldus on loodud tehisintellekti poolt: {model}' kus {model} on AI mudeli nimi. Hoidke KOGU vastus (kirjeldus + omistamine) alla 1500 märgi. Vastake AINULT kirjeldava tekstiga koos omistamisega.".to_string()
+        );
+
+        // Latvian template
+        prompt_templates.insert(
+            "lv".to_string(),
+            "Izveidojiet īsu, aprakstošu alt-tekstu šim attēlam. Koncentrējieties uz galvenajiem vizuālajiem elementiem, darbībām un kontekstu, kas palīdzētu lietotājiem ar redzes traucējumiem. Esiet konkrēti un objektīvi. Beidziet savu aprakstu ar ' — šis attēla apraksts ir izveidots ar mākslīgo intelektu: {model}' kur {model} ir AI modeļa nosaukums. Saglabājiet KOPĒJO atbildi (apraksts + piešķiršana) zem 1500 rakstzīmēm. Atbildiet TIKAI ar aprakstošo tekstu, ieskaitot piešķiršanu.".to_string()
+        );
+
+        // Ukrainian template
+        prompt_templates.insert(
+            "uk".to_string(),
+            "Створіть стислий, описовий alt-текст для цього зображення. Зосередьтеся на ключових візуальних елементах, діях та контексті, які допомогли б користувачам з порушеннями зору. Будьте конкретними та об'єктивними. Завершіть свій опис ' — цей опис зображення було створено штучним інтелектом: {model}' де {model} - назва моделі ШІ. Тримайте ЗАГАЛЬНУ відповідь (опис + атрибуція) менше 1500 символів. Відповідайте ЛИШЕ описовим текстом разом з атрибуцією.".to_string()
+        );
+
+        // Yiddish template
+        prompt_templates.insert(
+            "yi".to_string(),
+            "שאַפֿט אַ קורצן, באַשרײַבנדיקן אַלט־טעקסט פֿאַר דעם בילד. קאָנצענטרירט זיך אויף הויפּט־זעיק עלעמענטן, אַקציעס און קאָנטעקסט וואָס וואָלט געהאָלפֿן ניצער מיט זעיק־פּראָבלעמען. זײַט ספּעציפֿיש און אָביעקטיוו. ענדיקט אײַער באַשרײַבונג מיט ' — דער דאָזיקער בילד־באַשרײַבונג איז געמאַכט געוואָרן דורך קינסטלעכער אינטעליגענץ: {model}' וווּ {model} איז דער נאָמען פֿון קי־מאָדעל. האַלט די גאַנצע ענטפֿער (באַשרײַבונג + צושרײַבונג) אונטער 1500 צייכנס. ענטפֿערט נאָר מיט דעם באַשרײַבנדיקן טעקסט צוזאַמען מיט דער צושרײַבונג.".to_string()
+        );
+
+        // Hebrew template
+        prompt_templates.insert(
+            "he".to_string(),
+            "צרו טקסט alt קצר ותיאורי עבור התמונה הזו. התמקדו באלמנטים חזותיים מרכזיים, פעולות והקשר שיעזרו למשתמשים עם לקויות ראייה. היו ספציפיים ואובייקטיביים. סיימו את התיאור שלכם עם ' — תיאור התמונה הזה נוצר על ידי בינה מלאכותית: {model}' כאשר {model} הוא שם מודל הבינה המלאכותית. שמרו על התשובה הכוללת (תיאור + ייחוס) מתחת ל-1500 תווים. ענו רק עם הטקסט התיאורי כולל הייחוס.".to_string()
+        );
+
         Self { prompt_templates }
     }
 
