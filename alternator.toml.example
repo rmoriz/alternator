@@ -21,16 +21,12 @@ api_key = "your_openrouter_api_key_here"
 
 # AI model to use for image descriptions (optional, default: "mistralai/mistral-small-3.2-24b-instruct:free")
 # FREE MODELS (recommended to start with):
-# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free vision model)
-# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free vision model)
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free vision model with strong performance)
+# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free vision model with large context)
 # - "meta-llama/llama-3.2-11b-vision-instruct:free" (Meta's free vision model)
-# - "tngtech/deepseek-r1t2-chimera:free" (advanced reasoning model)
 # 
-# PAID MODELS (better quality, higher cost):
-# - "anthropic/claude-3-haiku" (fast, cost-effective, ~$0.002/image)
-# - "anthropic/claude-3-sonnet" (balanced performance/cost, ~$0.01/image)
-# - "openai/gpt-4o-mini" (OpenAI alternative, ~$0.002/image)
-# - "google/gemini-pro-vision" (Google alternative)
+# PAID MODELS (higher quality):
+# - "google/gemini-2.5-flash-lite" (Google's latest efficient vision model)
 model = "mistralai/mistral-small-3.2-24b-instruct:free"
 
 # OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
