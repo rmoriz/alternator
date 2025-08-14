@@ -37,11 +37,9 @@ struct Cli {
 impl Cli {
     /// Get config path from CLI arg or ALTERNATOR_CONFIG environment variable
     fn config_path(&self) -> Option<PathBuf> {
-        self.config.clone().or_else(|| {
-            std::env::var("ALTERNATOR_CONFIG")
-                .ok()
-                .map(PathBuf::from)
-        })
+        self.config
+            .clone()
+            .or_else(|| std::env::var("ALTERNATOR_CONFIG").ok().map(PathBuf::from))
     }
 }
 
@@ -426,22 +424,28 @@ mod tests {
     fn test_alternator_config_env_var() {
         // Test that ALTERNATOR_CONFIG environment variable is used when no CLI arg provided
         std::env::set_var("ALTERNATOR_CONFIG", "/env/path/to/config.toml");
-        
+
         let cli = Cli::parse_from(["alternator"]);
-        assert_eq!(cli.config_path(), Some(PathBuf::from("/env/path/to/config.toml")));
-        
+        assert_eq!(
+            cli.config_path(),
+            Some(PathBuf::from("/env/path/to/config.toml"))
+        );
+
         // Clean up
         std::env::remove_var("ALTERNATOR_CONFIG");
-        
+
         // Test that CLI arg overrides environment variable
         std::env::set_var("ALTERNATOR_CONFIG", "/env/path/to/config.toml");
-        
+
         let cli = Cli::parse_from(["alternator", "--config", "/cli/path/to/config.toml"]);
-        assert_eq!(cli.config_path(), Some(PathBuf::from("/cli/path/to/config.toml")));
-        
+        assert_eq!(
+            cli.config_path(),
+            Some(PathBuf::from("/cli/path/to/config.toml"))
+        );
+
         // Clean up
         std::env::remove_var("ALTERNATOR_CONFIG");
-        
+
         // Test that no config is returned when neither CLI arg nor env var is set
         let cli = Cli::parse_from(["alternator"]);
         assert_eq!(cli.config_path(), None);
