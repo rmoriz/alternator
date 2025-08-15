@@ -18,6 +18,7 @@ const ZERO_WIDTH_SPACE: &str = "\u{200B}";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TootEvent {
     pub id: String,
+    pub uri: String,
     pub account: Account,
     pub content: String,
     pub language: Option<String>,
@@ -25,6 +26,14 @@ pub struct TootEvent {
     pub created_at: DateTime<Utc>,
     pub url: Option<String>,
     pub visibility: String,
+    pub sensitive: bool,
+    pub spoiler_text: String,
+    pub in_reply_to_id: Option<String>,
+    pub in_reply_to_account_id: Option<String>,
+    pub mentions: Vec<Mention>,
+    pub tags: Vec<Tag>,
+    pub emojis: Vec<CustomEmoji>,
+    pub poll: Option<Poll>,
 }
 
 /// Mastodon account information
@@ -65,6 +74,61 @@ pub struct MediaDimensions {
     pub aspect: Option<f64>,
 }
 
+/// Mentioned user in a status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Mention {
+    pub id: String,
+    pub username: String,
+    pub url: String,
+    pub acct: String,
+}
+
+/// Hashtag in a status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tag {
+    pub name: String,
+    pub url: String,
+}
+
+/// Custom emoji in a status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomEmoji {
+    pub shortcode: String,
+    pub url: String,
+    pub static_url: String,
+    pub visible_in_picker: bool,
+}
+
+/// Poll attached to a status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Poll {
+    pub id: String,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub expired: bool,
+    pub multiple: bool,
+    pub votes_count: u32,
+    pub voters_count: Option<u32>,
+    pub voted: Option<bool>,
+    pub own_votes: Option<Vec<u32>>,
+    pub options: Vec<PollOption>,
+    pub emojis: Vec<CustomEmoji>,
+}
+
+/// Poll option
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PollOption {
+    pub title: String,
+    pub votes_count: Option<u32>,
+}
+
+/// Status source for editing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusSource {
+    pub id: String,
+    pub text: String,
+    pub spoiler_text: String,
+}
+
 /// WebSocket streaming event wrapper
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StreamEvent {
@@ -99,6 +163,7 @@ pub trait MastodonStream {
     async fn connect(&mut self) -> Result<(), MastodonError>;
     async fn listen(&mut self) -> Result<Option<TootEvent>, MastodonError>;
     async fn get_toot(&self, toot_id: &str) -> Result<TootEvent, MastodonError>;
+    async fn get_status_source(&self, toot_id: &str) -> Result<StatusSource, MastodonError>;
     #[allow(dead_code)] // Kept for backward compatibility in trait
     async fn update_media(
         &self,
@@ -594,6 +659,54 @@ impl MastodonStream for MastodonClient {
         Ok(toot)
     }
 
+    /// Get status source (original plain text) for editing
+    async fn get_status_source(&self, toot_id: &str) -> Result<StatusSource, MastodonError> {
+        let url = format!(
+            "{}/api/v1/statuses/{}/source",
+            self.config.instance_url.trim_end_matches('/'),
+            toot_id
+        );
+
+        debug!("Fetching status source: {}", url);
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to fetch status source: {e}"))
+            })?;
+
+        if response.status() == 404 {
+            return Err(MastodonError::TootNotFound {
+                toot_id: toot_id.to_string(),
+            });
+        }
+
+        if !response.status().is_success() {
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "Status source API request failed with status: {}",
+                response.status()
+            )));
+        }
+
+        let source: StatusSource = response.json().await.map_err(|e| {
+            MastodonError::InvalidTootData(format!("Failed to parse status source response: {e}"))
+        })?;
+
+        debug!(
+            "Retrieved status source: id={}, text_length={}",
+            source.id,
+            source.text.len()
+        );
+        Ok(source)
+    }
+
     /// Update media attachment description by editing the status
     async fn update_media(
         &self,
@@ -904,27 +1017,51 @@ impl MastodonStream for MastodonClient {
             toot_id
         );
 
-        // Get current status to preserve its content
+        // Get current status to preserve its metadata
         let current_status = self.get_toot(toot_id).await?;
-        let status_text = Self::extract_text_from_html(&current_status.content);
+
+        // Get original status text from source API to preserve mentions properly
+        let status_source = self.get_status_source(toot_id).await?;
 
         debug!("Original content HTML: {}", current_status.content);
-        debug!("Extracted text: '{}'", status_text);
+        debug!("Source text: '{}'", status_source.text);
 
         // Use zero-width space for empty content to allow media description updates
         // Mastodon requires text content when updating a status, but we want to support
         // adding descriptions to media-only posts
-        let status_content = if status_text.trim().is_empty() {
+        let status_content = if status_source.text.trim().is_empty() {
             debug!("Using zero-width space for empty content to enable media description update");
             ZERO_WIDTH_SPACE.to_string()
         } else {
-            debug!("Including original status text in update");
-            status_text
+            debug!("Including original status text from source in update");
+            status_source.text
         };
 
         // Create form data as a vector of tuples to properly handle array parameters
         let mut form_data = Vec::new();
         form_data.push(("status", status_content.as_str()));
+
+        // Preserve visibility
+        form_data.push(("visibility", current_status.visibility.as_str()));
+
+        // Preserve sensitivity and spoiler text (use source for spoiler_text to get original)
+        if current_status.sensitive {
+            form_data.push(("sensitive", "true"));
+        }
+        if !status_source.spoiler_text.is_empty() {
+            form_data.push(("spoiler_text", status_source.spoiler_text.as_str()));
+        }
+
+        // Preserve language if specified
+        if let Some(ref lang) = current_status.language {
+            form_data.push(("language", lang.as_str()));
+        }
+
+        // Preserve reply information if this is a reply
+        if let Some(ref reply_to_id) = current_status.in_reply_to_id {
+            form_data.push(("in_reply_to_id", reply_to_id.as_str()));
+            debug!("Preserving reply to toot: {}", reply_to_id);
+        }
 
         // Add new media IDs as array parameters
         for media_id in new_media_ids.iter() {
@@ -1076,6 +1213,7 @@ mod tests {
     fn create_test_toot_event() -> String {
         let toot = TootEvent {
             id: "123456789".to_string(),
+            uri: "https://mastodon.social/users/testuser/statuses/123456789".to_string(),
             account: Account {
                 id: "user123".to_string(),
                 username: "testuser".to_string(),
@@ -1109,6 +1247,14 @@ mod tests {
             created_at: Utc::now(),
             url: Some("https://mastodon.social/@testuser/123456789".to_string()),
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         let stream_event = StreamEvent {
@@ -1235,6 +1381,7 @@ mod tests {
 
         let toot = TootEvent {
             id: "123".to_string(),
+            uri: "https://example.com/users/testuser/statuses/123".to_string(),
             account: Account {
                 id: "user123".to_string(),
                 username: "testuser".to_string(),
@@ -1248,6 +1395,14 @@ mod tests {
             created_at: Utc::now(),
             url: None,
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         let result = client.is_own_toot(&toot).unwrap();
@@ -1262,6 +1417,7 @@ mod tests {
 
         let toot = TootEvent {
             id: "123".to_string(),
+            uri: "https://example.com/users/testuser/statuses/123".to_string(),
             account: Account {
                 id: "user456".to_string(),
                 username: "otheruser".to_string(),
@@ -1275,6 +1431,14 @@ mod tests {
             created_at: Utc::now(),
             url: None,
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         let result = client.is_own_toot(&toot).unwrap();
@@ -1288,6 +1452,7 @@ mod tests {
 
         let toot = TootEvent {
             id: "123".to_string(),
+            uri: "https://example.com/users/testuser/statuses/123".to_string(),
             account: Account {
                 id: "user123".to_string(),
                 username: "testuser".to_string(),
@@ -1301,6 +1466,14 @@ mod tests {
             created_at: Utc::now(),
             url: None,
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         let result = client.is_own_toot(&toot);
@@ -1315,6 +1488,7 @@ mod tests {
     fn test_toot_event_serialization() {
         let toot = TootEvent {
             id: "123456789".to_string(),
+            uri: "https://mastodon.social/users/testuser/statuses/123456789".to_string(),
             account: Account {
                 id: "user123".to_string(),
                 username: "testuser".to_string(),
@@ -1328,6 +1502,14 @@ mod tests {
             created_at: Utc::now(),
             url: Some("https://mastodon.social/@testuser/123456789".to_string()),
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         // Test serialization
@@ -1865,6 +2047,7 @@ mod tests {
         for visibility in visibilities {
             let toot = TootEvent {
                 id: "test".to_string(),
+                uri: "https://example.com/users/user/statuses/test".to_string(),
                 account: Account {
                     id: "user".to_string(),
                     username: "user".to_string(),
@@ -1878,6 +2061,14 @@ mod tests {
                 created_at: Utc::now(),
                 url: Some("https://example.com/test".to_string()),
                 visibility: visibility.to_string(),
+                in_reply_to_id: None,
+                in_reply_to_account_id: None,
+                mentions: Vec::new(),
+                sensitive: false,
+                spoiler_text: "".to_string(),
+                tags: Vec::new(),
+                emojis: Vec::new(),
+                poll: None,
             };
 
             assert_eq!(toot.visibility, visibility);
@@ -1919,6 +2110,7 @@ mod tests {
         // Test toot with minimal fields
         let minimal_toot = TootEvent {
             id: "test".to_string(),
+            uri: "https://example.com/users/user/statuses/test".to_string(),
             account: Account {
                 id: "user".to_string(),
                 username: "user".to_string(),
@@ -1932,6 +2124,14 @@ mod tests {
             created_at: Utc::now(),
             url: None,
             visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         };
 
         assert!(minimal_toot.language.is_none());

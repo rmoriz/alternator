@@ -318,7 +318,7 @@ mod tests {
     use super::*;
     use crate::config::OpenRouterConfig;
     use crate::error::MastodonError;
-    use crate::mastodon::{Account, TootEvent};
+    use crate::mastodon::{Account, StatusSource, TootEvent};
 
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -362,6 +362,14 @@ mod tests {
         async fn get_toot(&self, _toot_id: &str) -> Result<TootEvent, MastodonError> {
             Err(MastodonError::TootNotFound {
                 toot_id: "test".to_string(),
+            })
+        }
+
+        async fn get_status_source(&self, _toot_id: &str) -> Result<StatusSource, MastodonError> {
+            Ok(StatusSource {
+                id: "test".to_string(),
+                text: "mock status text".to_string(),
+                spoiler_text: String::new(),
             })
         }
 

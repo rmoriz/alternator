@@ -577,6 +577,7 @@ mod tests {
     fn create_test_toot(id: &str, media_attachments: Vec<MediaAttachment>) -> TootEvent {
         TootEvent {
             id: id.to_string(),
+            uri: format!("https://mastodon.social/users/testuser/statuses/{id}"),
             account: Account {
                 id: "user123".to_string(),
                 username: "testuser".to_string(),
@@ -590,6 +591,14 @@ mod tests {
             created_at: Utc::now(),
             url: Some("https://mastodon.social/@testuser/123456789".to_string()),
             visibility: "public".to_string(),
+            sensitive: false,
+            spoiler_text: String::new(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
         }
     }
 

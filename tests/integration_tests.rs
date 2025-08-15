@@ -431,6 +431,7 @@ async fn test_toot_processing_race_condition_handling() {
     // Create test toot with media that needs description
     let test_toot = TootEvent {
         id: "test_toot_123".to_string(),
+        uri: "https://mastodon.social/users/testuser/statuses/test_toot_123".to_string(),
         account: Account {
             id: "user_123".to_string(),
             username: "testuser".to_string(),
@@ -451,6 +452,14 @@ async fn test_toot_processing_race_condition_handling() {
         created_at: Utc::now(),
         url: Some("https://mastodon.social/@testuser/test_toot_123".to_string()),
         visibility: "public".to_string(),
+        sensitive: false,
+        spoiler_text: String::new(),
+        in_reply_to_id: None,
+        in_reply_to_account_id: None,
+        mentions: Vec::new(),
+        tags: Vec::new(),
+        emojis: Vec::new(),
+        poll: None,
     };
 
     // Test that the media processor identifies this as processable
@@ -521,6 +530,7 @@ async fn test_empty_message_with_media_behavior() {
     // Create a toot with empty content but media attachments needing descriptions
     let empty_content_toot = TootEvent {
         id: "empty_toot_123".to_string(),
+        uri: "https://mastodon.social/users/testuser/statuses/empty_toot_123".to_string(),
         account: Account {
             id: "user_456".to_string(),
             username: "testuser".to_string(),
@@ -551,11 +561,20 @@ async fn test_empty_message_with_media_behavior() {
         created_at: Utc::now(),
         url: Some("https://mastodon.social/@testuser/empty_toot_123".to_string()),
         visibility: "public".to_string(),
+        sensitive: false,
+        spoiler_text: String::new(),
+        in_reply_to_id: None,
+        in_reply_to_account_id: None,
+        mentions: Vec::new(),
+        tags: Vec::new(),
+        emojis: Vec::new(),
+        poll: None,
     };
 
     // Test with HTML-only content (also effectively empty)
     let html_empty_toot = TootEvent {
         id: "html_empty_toot_124".to_string(),
+        uri: "https://mastodon.social/users/testuser/statuses/html_empty_toot_124".to_string(),
         account: Account {
             id: "user_456".to_string(),
             username: "testuser".to_string(),
@@ -576,6 +595,14 @@ async fn test_empty_message_with_media_behavior() {
         created_at: Utc::now(),
         url: Some("https://mastodon.social/@testuser/html_empty_toot_124".to_string()),
         visibility: "public".to_string(),
+        sensitive: false,
+        spoiler_text: String::new(),
+        in_reply_to_id: None,
+        in_reply_to_account_id: None,
+        mentions: Vec::new(),
+        tags: Vec::new(),
+        emojis: Vec::new(),
+        poll: None,
     };
 
     // Test media processor identifies these as processable
