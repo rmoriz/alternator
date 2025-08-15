@@ -735,12 +735,18 @@ impl MastodonStream for MastodonClient {
             toot_id
         );
 
-        // First, get the current status to preserve its content
-        let current_status = self.get_toot(toot_id).await?;
-        let status_content = &current_status.content;
+        // Get original status text from source API to preserve exact original text
+        let status_source = self.get_status_source(toot_id).await?;
 
-        // Parse HTML content to get plain text
-        let status_text = Self::extract_text_from_html(status_content);
+        // Use zero-width space for empty content to allow media description updates
+        // Otherwise use original text exactly as-is without any HTML processing
+        let status_text = if status_source.text.trim().is_empty() {
+            debug!("Using zero-width space for empty content to enable media description update");
+            ZERO_WIDTH_SPACE.to_string()
+        } else {
+            debug!("Using original status text exactly as-is");
+            status_source.text
+        };
 
         let url = format!(
             "{}/api/v1/statuses/{}",
@@ -1106,6 +1112,7 @@ impl MastodonStream for MastodonClient {
 
 impl MastodonClient {
     /// Extract plain text from HTML content
+    #[allow(dead_code)] // Used in tests and integration tests
     pub fn extract_text_from_html(html: &str) -> String {
         // Simple HTML tag removal - this is basic but should work for our needs
         let mut text = html.to_string();
@@ -1763,28 +1770,28 @@ mod tests {
 
     #[test]
     fn test_status_content_logic_with_zero_width_space() {
-        // Test the logic that would be used in recreate_media_with_descriptions
+        // Test the logic that would be used in both update functions
+        // We now work directly with source text, not HTML
         let test_cases = vec![
-            ("", ZERO_WIDTH_SPACE),                  // Empty -> zero-width space
-            ("   ", ZERO_WIDTH_SPACE),               // Whitespace -> zero-width space
-            ("<p></p>", ZERO_WIDTH_SPACE),           // Empty HTML -> zero-width space
-            ("Hello world", "Hello world"),          // Normal text -> unchanged
-            ("<p>Test content</p>", "Test content"), // HTML with content -> extracted text
+            ("", ZERO_WIDTH_SPACE),                       // Empty -> zero-width space
+            ("   ", ZERO_WIDTH_SPACE),                    // Whitespace -> zero-width space
+            ("Hello world", "Hello world"),               // Normal text -> unchanged
+            ("Test content", "Test content"),             // Regular text -> unchanged
+            ("Multi\nline\ntext", "Multi\nline\ntext"),   // Preserve formatting
+            ("Text with emoji 🎉", "Text with emoji 🎉"), // Preserve emojis
         ];
 
-        for (input, expected_status_content) in test_cases {
-            let extracted_text = MastodonClient::extract_text_from_html(input);
-
-            // Simulate the logic from recreate_media_with_descriptions
-            let status_content = if extracted_text.trim().is_empty() {
+        for (source_text, expected_status_content) in test_cases {
+            // Simulate the logic from both update functions
+            let status_content = if source_text.trim().is_empty() {
                 ZERO_WIDTH_SPACE.to_string()
             } else {
-                extracted_text
+                source_text.to_string()
             };
 
             assert_eq!(
                 status_content, expected_status_content,
-                "For input '{input}', expected '{expected_status_content}' but got '{status_content}'"
+                "For input '{source_text}', expected '{expected_status_content}' but got '{status_content}'"
             );
 
             // Verify that the result always passes validation
