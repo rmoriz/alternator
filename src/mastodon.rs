@@ -1041,9 +1041,6 @@ impl MastodonStream for MastodonClient {
         let mut form_data = Vec::new();
         form_data.push(("status", status_content.as_str()));
 
-        // Preserve visibility
-        form_data.push(("visibility", current_status.visibility.as_str()));
-
         // Preserve sensitivity and spoiler text (use source for spoiler_text to get original)
         if current_status.sensitive {
             form_data.push(("sensitive", "true"));
@@ -1057,11 +1054,8 @@ impl MastodonStream for MastodonClient {
             form_data.push(("language", lang.as_str()));
         }
 
-        // Preserve reply information if this is a reply
-        if let Some(ref reply_to_id) = current_status.in_reply_to_id {
-            form_data.push(("in_reply_to_id", reply_to_id.as_str()));
-            debug!("Preserving reply to toot: {}", reply_to_id);
-        }
+        // Note: visibility and in_reply_to_id are NOT supported by the edit status API
+        // These fields are immutable after status creation and sending them causes 422 errors
 
         // Add new media IDs as array parameters
         for media_id in new_media_ids.iter() {
