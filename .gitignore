@@ -24,6 +24,8 @@ Thumbs.db
 
 # Configuration files with secrets
 alternator.toml
+alternator.toml.*
+!alternator.toml.example
 *.env
 .env*
 

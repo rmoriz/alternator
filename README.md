@@ -4,7 +4,7 @@
 
 # Alternator
 
-Automatically adds descriptions to media attachments in Mastodon toots using AI-powered image analysis.
+Automatically adds descriptions to media attachments in Mastodon toots using AI-powered analysis for images, audio transcription, and video transcription.
 
 [![CI](https://github.com/rmoriz/alternator/workflows/CI/badge.svg)](https://github.com/rmoriz/alternator/actions)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
@@ -12,21 +12,50 @@ Automatically adds descriptions to media attachments in Mastodon toots using AI-
 ## Features
 
 - **Real-time monitoring** of your Mastodon toots via WebSocket streaming
-- **AI-powered image descriptions** using OpenRouter API with multiple model options
+- **AI-powered media descriptions** using OpenRouter API with multiple model options:
+  - **Image descriptions** for photos, graphics, and visual content
+  - **Audio transcription** using Whisper AI for speech-to-text conversion
+  - **Video transcription** with automatic audio extraction and Whisper processing
 - **Multi-language support** with automatic language detection and localized prompts
 - **Race condition protection** to avoid overwriting manual edits
 - **Cost controls** with configurable token limits and balance monitoring
 - **Comprehensive error recovery** with automatic reconnection and backoff strategies
 - **Container-ready** with Docker support and environment variable configuration
-- **Cross-platform** binaries for Linux and macOS (x86_64 and ARM64)
+- **Cross-platform** binaries for Linux (glibc) and macOS (x86_64 and ARM64)
+- **FFmpeg integration** for audio/video processing and format conversion
 
 ## Quick Start
 
-### 1. Download Binary
+### Option 1: Docker (Recommended)
+
+Docker is the easiest way to get started as it includes all dependencies (FFmpeg, glibc) pre-installed:
+
+```bash
+# Create config and model directories
+mkdir -p config whisper-models
+cp alternator.toml.example config/alternator.toml
+
+# Edit config/alternator.toml with your credentials
+# Enable Whisper for audio/video transcription:
+# [whisper]
+# enabled = true
+# model = "base"
+
+# Run with Docker (FFmpeg included)
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator
+```
+
+### Option 2: Binary Installation
+
+#### 1. Download Binary
 
 Download the latest release for your platform from the [GitHub Releases](https://github.com/rmoriz/alternator/releases) page.
 
-### 2. Configuration
+#### 2. Configuration
 
 Copy the example configuration and customize it:
 
@@ -43,10 +72,28 @@ access_token = "your_mastodon_access_token"
 
 [openrouter]
 api_key = "your_openrouter_api_key"
-model = "mistralai/mistral-small-3.2-24b-instruct:free"
+vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
+text_model = "tngtech/deepseek-r1t2-chimera:free"
+
+[whisper]
+enabled = true
+model = "base"
 ```
 
-### 3. Run
+#### 3. Install FFmpeg (Required for audio/video transcription)
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# Windows
+# Download from https://ffmpeg.org/download.html
+```
+
+#### 4. Run
 
 ```bash
 ./alternator --config alternator.toml
@@ -54,14 +101,35 @@ model = "mistralai/mistral-small-3.2-24b-instruct:free"
 
 ## Installation
 
-### From Releases (Recommended)
+### Docker (Recommended)
+
+**⭐ Recommended approach** - includes FFmpeg and all dependencies:
+
+```bash
+# Quick start with Docker
+mkdir -p config whisper-models
+cp alternator.toml.example config/alternator.toml
+# Edit config/alternator.toml with your credentials
+
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator
+```
+
+### From Releases
 
 Download pre-built binaries from [GitHub Releases](https://github.com/rmoriz/alternator/releases):
 
-- `alternator-linux-amd64.tar.gz` - Linux x86_64
-- `alternator-linux-arm64.tar.gz` - Linux ARM64
+- `alternator-linux-amd64.tar.gz` - Linux x86_64 (glibc)
+- `alternator-linux-arm64.tar.gz` - Linux ARM64 (glibc)
 - `alternator-macos-amd64.tar.gz` - macOS x86_64  
 - `alternator-macos-arm64.tar.gz` - macOS ARM64 (Apple Silicon)
+
+**Linux Requirements**: glibc 2.17+ (most modern distributions including Ubuntu 16.04+, Debian 8+, CentOS 7+, Fedora 24+)
+
+**Note**: Linux binaries are dynamically linked with glibc for broader compatibility. For static binaries or musl-based systems (Alpine Linux), build from source.
 
 ### From Source
 
@@ -73,16 +141,41 @@ cd alternator
 cargo build --release
 ```
 
-### Docker
+### Docker (Recommended)
+
+**Why Docker?** The Docker image includes all dependencies (FFmpeg, glibc, Whisper) pre-installed, making setup much easier.
 
 ```bash
-# Using GitHub Container Registry
-docker run -v $(pwd)/config:/app/config ghcr.io/rmoriz/alternator
+# Using GitHub Container Registry (recommended)
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator
 
-# Build locally
+# Download Whisper models (optional - models are downloaded automatically when needed)
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator --download-whisper-model base
+
+# Build locally (if you prefer)
 docker build -t alternator .
-docker run -v $(pwd)/config:/app/config alternator
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  alternator
 ```
+
+**Docker Benefits:**
+- ✅ FFmpeg pre-installed (no manual installation needed)
+- ✅ All dependencies included (glibc, codecs, libraries)
+- ✅ Consistent environment across all platforms
+- ✅ Automatic updates with image tags
+- ✅ Isolated from host system
+- ✅ Persistent model storage with volume mounts
 
 ## Configuration
 
@@ -97,8 +190,15 @@ access_token = "your_token_here"
 
 [openrouter]
 api_key = "your_api_key_here"
-model = "mistralai/mistral-small-3.2-24b-instruct:free"
+vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
+text_model = "tngtech/deepseek-r1t2-chimera:free"
+base_url = "https://openrouter.ai/api/v1"
 max_tokens = 200
+
+[whisper]
+enabled = true
+model = "base"
+max_duration_minutes = 10
 
 [balance]
 enabled = true
@@ -117,7 +217,11 @@ All configuration options can be overridden with environment variables:
 export ALTERNATOR_MASTODON_INSTANCE_URL="https://your.instance.com"
 export ALTERNATOR_MASTODON_ACCESS_TOKEN="your_token"
 export ALTERNATOR_OPENROUTER_API_KEY="your_key"
-export ALTERNATOR_OPENROUTER_MODEL="mistralai/mistral-small-3.2-24b-instruct:free"
+export ALTERNATOR_OPENROUTER_VISION_MODEL="mistralai/mistral-small-3.2-24b-instruct:free"
+export ALTERNATOR_OPENROUTER_TEXT_MODEL="tngtech/deepseek-r1t2-chimera:free"
+export ALTERNATOR_WHISPER_ENABLED="true"
+export ALTERNATOR_WHISPER_MODEL="base"
+export ALTERNATOR_WHISPER_MODEL_DIR="/custom/whisper/models"
 export ALTERNATOR_LOG_LEVEL="debug"
 ```
 
@@ -148,6 +252,7 @@ Popular model options for the `model` configuration:
 - `mistralai/mistral-small-3.2-24b-instruct:free` - Excellent free vision model with strong performance
 - `qwen/qwen2.5-vl-32b-instruct:free` - Powerful free vision model with large context
 - `meta-llama/llama-3.2-11b-vision-instruct:free` - Meta's free vision model
+- `tngtech/deepseek-r1t2-chimera:free` - Excellent free text model for summarization tasks
 
 ### Paid Models (Higher Quality)
 - `google/gemini-2.5-flash-lite` - Google's latest efficient vision model
@@ -170,9 +275,43 @@ See [OpenRouter Models](https://openrouter.ai/models) for the complete list.
 
 # Verbose mode (equivalent to --log-level debug)
 ./alternator --verbose
+
+# Download Whisper models for audio/video transcription
+./alternator --download-whisper-model base
+
+# Available models: tiny, base, small, medium, large
+# Models are stored in ~/.alternator/models/ by default
 ```
 
-### Docker Usage
+### Docker Usage (Recommended)
+
+**Docker includes FFmpeg and all dependencies pre-installed:**
+
+```bash
+# Create config and model directories
+mkdir -p config whisper-models
+cp alternator.toml.example config/alternator.toml
+# Edit config/alternator.toml with your credentials
+
+# Run with Docker (everything included)
+# Mount both config and model directories for persistence
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator
+
+# For audio/video transcription, enable Whisper in your config:
+# [whisper]
+# enabled = true
+# model = "base"
+# model_dir = "/app/models"  # Maps to ./whisper-models on host
+```
+
+**Docker Benefits:**
+- ✅ **Models persist between containers** with volume mount
+- ✅ **Faster restarts** - no need to re-download models
+- ✅ **Shared models** across multiple container instances
 
 ```bash
 # Create config directory
@@ -216,9 +355,12 @@ sudo systemctl start alternator
 
 1. **Stream Monitoring**: Connects to your Mastodon instance's WebSocket stream
 2. **Toot Filtering**: Identifies your own toots with media attachments
-3. **Media Processing**: Filters for supported image types without descriptions
+3. **Media Processing**: Processes supported media types without descriptions:
+   - **Images**: Direct AI analysis for visual description
+   - **Audio**: FFmpeg conversion → Whisper transcription
+   - **Video**: FFmpeg audio extraction → Whisper transcription
 4. **Language Detection**: Determines the toot's language for appropriate prompts
-5. **AI Description**: Sends images to OpenRouter for description generation
+5. **AI Description**: Sends content to OpenRouter for description/transcription
 6. **Race Condition Check**: Verifies the toot hasn't been manually edited
 7. **Update**: Adds the generated description to the media attachment
 
@@ -250,7 +392,25 @@ Robust error handling with automatic recovery:
 - Network timeout handling with retry mechanisms
 - Graceful degradation for non-critical failures
 
-### Multi-language Support
+### Audio & Video Transcription
+
+Automatic speech-to-text for multimedia content:
+
+- **Supported Audio**: MP3, WAV, M4A, OGG, FLAC, AAC
+- **Supported Video**: MP4, WebM, QuickTime, AVI, MKV, and more
+- **Whisper Integration**: Local Whisper models for offline transcription
+- **Language Detection**: Automatic language detection or manual configuration
+- **Smart Summarization**: LLM-powered transcript summarization for long content
+- **Size Limits**: Configurable file size and duration limits
+
+### FFmpeg Integration
+
+Alternator uses FFmpeg for audio/video processing:
+
+- **Audio Extraction**: Extracts audio tracks from video files
+- **Format Conversion**: Converts audio to optimal format for Whisper
+- **Quality Optimization**: Standardizes sample rates and channels
+- **Error Handling**: Graceful fallback when FFmpeg is unavailable
 
 Generates descriptions in the detected language of your toot:
 
@@ -274,7 +434,9 @@ Generates descriptions in the detected language of your toot:
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `api_key` | String | Yes | - | Your OpenRouter API key |
-| `model` | String | No | `"mistralai/mistral-small-3.2-24b-instruct:free"` | AI model to use |
+| `vision_model` | String | No | `"mistralai/mistral-small-3.2-24b-instruct:free"` | AI model for image descriptions |
+| `text_model` | String | No | `"tngtech/deepseek-r1t2-chimera:free"` | AI model for text tasks (summarization) |
+| `model` | String | No | `"mistralai/mistral-small-3.2-24b-instruct:free"` | Legacy: fallback model (deprecated) |
 | `base_url` | String | No | `"https://openrouter.ai/api/v1"` | OpenRouter API base URL |
 | `max_tokens` | Integer | No | `200` | Maximum tokens per request |
 
@@ -299,6 +461,16 @@ Generates descriptions in the detected language of your toot:
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `level` | String | No | `"info"` | Log level: `error`, `warn`, `info`, `debug`, `trace` |
+
+### `[whisper]` Section
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `enabled` | Boolean | No | `false` | Enable audio/video transcription with Whisper |
+| `model` | String | No | `"base"` | Whisper model: `tiny`, `base`, `small`, `medium`, `large` |
+| `model_dir` | String | No | `"~/.alternator/models"` | Directory to store Whisper models |
+| `language` | String | No | `"auto"` | Language code for transcription or `"auto"` for detection |
+| `max_duration_minutes` | Integer | No | `10` | Maximum audio/video duration to process (minutes) |
 
 ## Troubleshooting
 
@@ -326,6 +498,24 @@ Error: OpenRouter API request failed
 - Verify your OpenRouter API key is correct
 - Check your account has sufficient credits
 - Ensure the selected model is available
+
+**FFmpeg Not Found**
+```
+Error: FFmpeg is required for audio/video processing but not found
+```
+- Install FFmpeg for your system:
+  - macOS: `brew install ffmpeg`
+  - Ubuntu: `sudo apt install ffmpeg` 
+  - Windows: Download from https://ffmpeg.org/download.html
+- Ensure FFmpeg is in your system PATH
+
+**Whisper Model Download Failed**
+```
+Error: Failed to download Whisper model
+```
+- Check your internet connection
+- Verify disk space in model directory
+- Try downloading manually: `./alternator --download-whisper-model base`
 
 **Balance Too Low**
 ```
@@ -356,12 +546,19 @@ Check container logs:
 docker logs <container_id>
 ```
 
-Verify configuration mounting:
+Verify configuration and model mounting:
 ```bash
-docker run -v $(pwd)/config:/app/config ghcr.io/rmoriz/alternator ls -la /app/config
+docker run \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/whisper-models:/app/models \
+  -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
+  ghcr.io/rmoriz/alternator ls -la /app/config /app/models
 ```
 
 ## FAQ
+
+**Q: What's the easiest way to get started?**
+A: Use Docker! It includes FFmpeg and all dependencies pre-installed. Just create config and model directories, then run: `docker run -v $(pwd)/config:/app/config -v $(pwd)/whisper-models:/app/models -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models ghcr.io/rmoriz/alternator`
 
 **Q: How much does it cost to run?**
 A: Free models cost nothing! For paid models, costs depend on usage. Claude-3-Haiku typically costs $0.002-0.01 per image description. Monitor your usage via OpenRouter's dashboard.
@@ -380,6 +577,12 @@ A: No. Alternator checks for existing descriptions and skips processing if descr
 
 **Q: What image formats are supported?**
 A: By default: JPEG, PNG, GIF, and WebP. You can customize this in the configuration.
+
+**Q: What audio and video formats are supported?**
+A: Audio: MP3, WAV, M4A, OGG, FLAC, AAC. Video: MP4, WebM, QuickTime, AVI, MKV, and more. Requires FFmpeg and Whisper enabled.
+
+**Q: Do I need to install anything for audio/video transcription?**
+A: Yes, you need to install FFmpeg for audio/video processing. Whisper models are downloaded automatically when needed.
 
 **Q: Can I run this on a server?**
 A: Yes. Alternator is designed to run as a service. See the systemd service example above.

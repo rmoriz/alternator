@@ -6,9 +6,10 @@ FROM debian:trixie-slim
 ARG TARGETARCH
 ARG TARGETOS
 
-# Install runtime dependencies
+# Install runtime dependencies including FFmpeg for audio/video processing
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user

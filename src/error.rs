@@ -120,6 +120,9 @@ pub enum OpenRouterError {
 
     #[error("Unsupported image format: {format}")]
     UnsupportedImageFormat { format: String },
+
+    #[error("Provider failure: {provider} - {message}")]
+    ProviderFailure { provider: String, message: String },
 }
 
 #[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness

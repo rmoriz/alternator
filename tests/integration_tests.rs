@@ -1,11 +1,23 @@
+//! Integration tests for Alternator
+//!
+//! These tests modify global environment variables and should be run sequentially.
+//! Use: cargo test --test integration_tests -- --test-threads=1
+
 use alternator::config::{
     BalanceConfig, Config, LoggingConfig, MastodonConfig, MediaConfig, OpenRouterConfig,
+    RuntimeConfig, WhisperConfig,
 };
 use alternator::error::AlternatorError;
 use alternator::mastodon::{Account, MediaAttachment, TootEvent};
 use alternator::toot_handler::TootStreamHandler;
 use chrono::{Timelike, Utc};
 use tokio::time::{timeout, Duration};
+
+/// Create a test runtime config for integration tests
+fn create_test_runtime_config() -> RuntimeConfig {
+    let config = create_test_config();
+    RuntimeConfig::new(config)
+}
 
 /// Create a test configuration for integration tests
 fn create_test_config() -> Config {
@@ -18,6 +30,8 @@ fn create_test_config() -> Config {
         openrouter: OpenRouterConfig {
             api_key: "test_api_key".to_string(),
             model: "anthropic/claude-3-haiku".to_string(),
+            vision_model: "anthropic/claude-3-haiku".to_string(),
+            text_model: "anthropic/claude-3-haiku".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         },
@@ -39,12 +53,19 @@ fn create_test_config() -> Config {
         logging: Some(LoggingConfig {
             level: Some("debug".to_string()),
         }),
+        whisper: Some(WhisperConfig {
+            enabled: Some(false),
+            model: Some("base".to_string()),
+            model_dir: None,
+            language: None,
+            max_duration_minutes: Some(10),
+        }),
     }
 }
 
 #[tokio::test]
 async fn test_config_loading_from_file() {
-    // Clean up any existing ALTERNATOR env vars to ensure test isolation
+    // Clean up any existing environment variables first
     let env_vars_to_clean = [
         "ALTERNATOR_MASTODON_INSTANCE_URL",
         "ALTERNATOR_MASTODON_ACCESS_TOKEN",
@@ -62,6 +83,8 @@ async fn test_config_loading_from_file() {
 
     // Create a temporary config file
     let temp_dir = tempfile::tempdir().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&temp_dir).unwrap();
     let config_path = temp_dir.path().join("test_config.toml");
 
     let config_content = r#"
@@ -103,6 +126,9 @@ level = "info"
     assert_eq!(config.media().max_size_mb, Some(15));
     assert_eq!(config.balance().threshold, Some(10.0));
     assert_eq!(config.logging().level, Some("info".to_string()));
+
+    // Restore original directory
+    std::env::set_current_dir(original_dir).unwrap();
 }
 
 #[tokio::test]
@@ -111,6 +137,22 @@ async fn test_config_environment_variable_overrides() {
     let temp_dir = tempfile::tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(&temp_dir).unwrap();
+
+    // Clean up any existing environment variables first
+    let env_vars_to_clean = [
+        "ALTERNATOR_MASTODON_INSTANCE_URL",
+        "ALTERNATOR_MASTODON_ACCESS_TOKEN",
+        "ALTERNATOR_OPENROUTER_API_KEY",
+        "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_MAX_TOKENS",
+        "ALTERNATOR_BALANCE_ENABLED",
+        "ALTERNATOR_BALANCE_THRESHOLD",
+        "ALTERNATOR_LOG_LEVEL",
+    ];
+
+    for var in &env_vars_to_clean {
+        std::env::remove_var(var);
+    }
 
     // Set environment variables
     std::env::set_var(
@@ -124,6 +166,12 @@ async fn test_config_environment_variable_overrides() {
     std::env::set_var("ALTERNATOR_BALANCE_ENABLED", "false");
     std::env::set_var("ALTERNATOR_BALANCE_THRESHOLD", "15.5");
     std::env::set_var("ALTERNATOR_LOG_LEVEL", "debug");
+
+    // Verify environment variables are set
+    assert_eq!(
+        std::env::var("ALTERNATOR_MASTODON_INSTANCE_URL").unwrap(),
+        "https://env.mastodon.social"
+    );
 
     // Load config (should use environment variables)
     let config = Config::load(None).unwrap();
@@ -170,6 +218,8 @@ async fn test_config_validation_missing_required_fields() {
     }
 
     let temp_dir = tempfile::tempdir().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&temp_dir).unwrap();
     let config_path = temp_dir.path().join("invalid_config.toml");
 
     let config_content = r#"
@@ -189,6 +239,9 @@ model = "test-model"
 
     let error = result.unwrap_err();
     assert!(error.to_string().contains("mastodon.instance_url"));
+
+    // Restore original directory
+    std::env::set_current_dir(original_dir).unwrap();
 }
 
 #[tokio::test]
@@ -318,7 +371,7 @@ async fn test_media_processing_pipeline() {
         },
         alternator::mastodon::MediaAttachment {
             id: "3".to_string(),
-            media_type: "video/mp4".to_string(), // Unsupported type
+            media_type: "video/mp4".to_string(), // Now supported type
             url: "https://example.com/video.mp4".to_string(),
             preview_url: None,
             description: None,
@@ -327,13 +380,14 @@ async fn test_media_processing_pipeline() {
     ];
 
     let processable = media_processor.filter_processable_media(&media_attachments);
-    assert_eq!(processable.len(), 1); // Only the first image should be processable
+    assert_eq!(processable.len(), 2); // First image and video should be processable
     assert_eq!(processable[0].id, "1");
+    assert_eq!(processable[1].id, "3");
 
     let stats = media_processor.get_media_stats(&media_attachments);
     assert_eq!(stats.total, 3);
-    assert_eq!(stats.supported, 2); // JPEG and PNG are supported
-    assert_eq!(stats.processable, 1); // Only one needs description
+    assert_eq!(stats.supported, 3); // JPEG, PNG and MP4 are supported
+    assert_eq!(stats.processable, 2); // Image and video need descriptions
 }
 
 #[tokio::test]
@@ -348,6 +402,8 @@ async fn test_balance_monitoring_configuration() {
     let openrouter_client = alternator::openrouter::OpenRouterClient::new(OpenRouterConfig {
         api_key: "test_key".to_string(),
         model: "test_model".to_string(),
+        vision_model: "test_vision_model".to_string(),
+        text_model: "test_text_model".to_string(),
         base_url: None,
         max_tokens: Some(150),
     });
@@ -370,6 +426,8 @@ async fn test_balance_monitoring_configuration() {
     let openrouter_client2 = alternator::openrouter::OpenRouterClient::new(OpenRouterConfig {
         api_key: "test_key".to_string(),
         model: "test_model".to_string(),
+        vision_model: "test_vision_model".to_string(),
+        text_model: "test_text_model".to_string(),
         base_url: None,
         max_tokens: Some(150),
     });
@@ -385,8 +443,9 @@ async fn test_balance_monitoring_configuration() {
 async fn test_end_to_end_toot_processing_workflow() {
     // Test the complete toot processing pipeline with mock components
     let config = create_test_config();
+    let runtime_config = create_test_runtime_config();
 
-    // Create components for TootStreamHandler
+    // Create components
     let mastodon_client = alternator::mastodon::MastodonClient::new(config.mastodon.clone());
     let openrouter_client =
         alternator::openrouter::OpenRouterClient::new(config.openrouter.clone());
@@ -411,6 +470,7 @@ async fn test_end_to_end_toot_processing_workflow() {
         openrouter_client,
         media_processor,
         language_detector,
+        runtime_config,
     );
 
     // Verify TootStreamHandler can be created and has expected initial state
@@ -491,6 +551,7 @@ async fn test_toot_processing_race_condition_handling() {
 async fn test_toot_processing_duplicate_prevention() {
     // Test that duplicate toot processing is prevented
     let config = create_test_config();
+    let runtime_config = create_test_runtime_config();
 
     // Create components
     let mastodon_client = alternator::mastodon::MastodonClient::new(config.mastodon.clone());
@@ -510,6 +571,7 @@ async fn test_toot_processing_duplicate_prevention() {
         openrouter_client,
         media_processor,
         language_detector,
+        runtime_config,
     );
 
     // Initially no toots processed
@@ -804,4 +866,278 @@ async fn test_zero_width_space_implementation_integration() {
         "Normal content should be preserved unchanged"
     );
     assert!(!status_content_normal.trim().is_empty());
+}
+
+#[tokio::test]
+async fn test_audio_format_support() {
+    // Test that audio formats are now properly supported by MediaProcessor
+
+    // Create a test toot with audio attachment
+    let test_toot = TootEvent {
+        id: "audio_test_123".to_string(),
+        uri: "https://mastodon.social/users/testuser/statuses/audio_test_123".to_string(),
+        account: Account {
+            id: "test_account_456".to_string(),
+            username: "testuser".to_string(),
+            acct: "testuser".to_string(),
+            display_name: "Test User".to_string(),
+            url: "https://mastodon.social/@testuser".to_string(),
+        },
+        content: "Check out this audio clip!".to_string(),
+        language: Some("en".to_string()),
+        media_attachments: vec![MediaAttachment {
+            id: "audio_789".to_string(),
+            media_type: "audio".to_string(), // This is what Mastodon API sends
+            url: "https://example.com/audio.mp3".to_string(),
+            preview_url: None,
+            description: None,
+            meta: None,
+        }],
+        created_at: Utc::now(),
+        url: Some("https://mastodon.social/@testuser/audio_test_123".to_string()),
+        visibility: "public".to_string(),
+        sensitive: false,
+        spoiler_text: String::new(),
+        in_reply_to_id: None,
+        in_reply_to_account_id: None,
+        mentions: Vec::new(),
+        tags: Vec::new(),
+        emojis: Vec::new(),
+        poll: None,
+    };
+
+    // Test with default configuration (should now include audio formats)
+    let media_processor_default = alternator::media::MediaProcessor::with_default_config();
+    let processable_default =
+        media_processor_default.filter_processable_media(&test_toot.media_attachments);
+
+    assert_eq!(
+        processable_default.len(),
+        1,
+        "Audio attachment should be processable with default config"
+    );
+    assert_eq!(processable_default[0].id, "audio_789");
+
+    // Test with explicit configuration including audio formats
+    let mut supported_formats = std::collections::HashSet::new();
+    supported_formats.insert("audio/mpeg".to_string());
+    supported_formats.insert("audio/mp3".to_string());
+    supported_formats.insert("image/jpeg".to_string());
+
+    let media_processor_explicit =
+        alternator::media::MediaProcessor::with_image_transformer(alternator::media::MediaConfig {
+            max_size_mb: 10.0,
+            max_dimension: 2048,
+            supported_formats,
+        });
+
+    let processable_explicit =
+        media_processor_explicit.filter_processable_media(&test_toot.media_attachments);
+
+    assert_eq!(
+        processable_explicit.len(),
+        1,
+        "Audio attachment should be processable with explicit audio config"
+    );
+
+    // Test that specific audio MIME types are also supported
+    let specific_audio_toot = TootEvent {
+        id: "specific_audio_test_456".to_string(),
+        uri: "https://mastodon.social/users/testuser2/statuses/specific_audio_test_456".to_string(),
+        account: Account {
+            id: "test_account_789".to_string(),
+            username: "testuser2".to_string(),
+            acct: "testuser2".to_string(),
+            display_name: "Test User 2".to_string(),
+            url: "https://mastodon.social/@testuser2".to_string(),
+        },
+        content: "Specific audio format test".to_string(),
+        language: Some("en".to_string()),
+        media_attachments: vec![MediaAttachment {
+            id: "specific_audio_123".to_string(),
+            media_type: "audio/mpeg".to_string(), // Specific MIME type
+            url: "https://example.com/specific.mp3".to_string(),
+            preview_url: None,
+            description: None,
+            meta: None,
+        }],
+        created_at: Utc::now(),
+        url: Some("https://mastodon.social/@testuser2/specific_audio_test_456".to_string()),
+        visibility: "public".to_string(),
+        sensitive: false,
+        spoiler_text: String::new(),
+        in_reply_to_id: None,
+        in_reply_to_account_id: None,
+        mentions: Vec::new(),
+        tags: Vec::new(),
+        emojis: Vec::new(),
+        poll: None,
+    };
+
+    let processable_specific =
+        media_processor_default.filter_processable_media(&specific_audio_toot.media_attachments);
+
+    assert_eq!(
+        processable_specific.len(),
+        1,
+        "Specific audio MIME type should be processable"
+    );
+    assert_eq!(processable_specific[0].id, "specific_audio_123");
+
+    println!("Audio format support test passed - audio attachments are now properly recognized as processable");
+}
+
+#[tokio::test]
+async fn test_openrouter_mocking_in_integration_tests() {
+    // This test demonstrates how to use mocks instead of live OpenRouter calls
+    use alternator::openrouter::{MockOpenRouterClient, OpenRouterApi, OpenRouterError};
+
+    // Test successful API responses
+    let mock_client = MockOpenRouterClient::new()
+        .with_balance(50.0)
+        .with_description("A mocked image description for testing".to_string());
+
+    // Test account balance
+    let balance = mock_client.get_account_balance().await.unwrap();
+    assert_eq!(balance, 50.0);
+
+    // Test image description
+    let test_image = vec![0u8; 2048];
+    let description = mock_client
+        .describe_image(&test_image, "Describe this test image")
+        .await
+        .unwrap();
+    assert_eq!(description, "A mocked image description for testing");
+
+    // Test error scenarios
+    let error_client = MockOpenRouterClient::with_error(OpenRouterError::InsufficientBalance {
+        balance: 0.50,
+        minimum: 1.0,
+    });
+
+    let balance_result = error_client.get_account_balance().await;
+    assert!(balance_result.is_err());
+
+    match balance_result.unwrap_err() {
+        OpenRouterError::InsufficientBalance { balance, minimum } => {
+            assert_eq!(balance, 0.50);
+            assert_eq!(minimum, 1.0);
+        }
+        _ => panic!("Expected InsufficientBalance error"),
+    }
+
+    println!("OpenRouter mocking test passed - no live API calls made");
+}
+
+#[tokio::test]
+async fn test_balance_monitoring_with_mock() {
+    // Test balance monitoring using mock OpenRouter client
+    use alternator::openrouter::{MockOpenRouterClient, OpenRouterApi, OpenRouterError};
+
+    // This would typically require dependency injection to work properly
+    // For now, we demonstrate the concept with direct mock usage
+
+    let mock_client = MockOpenRouterClient::new().with_balance(15.0);
+    let balance = mock_client.get_account_balance().await.unwrap();
+    assert_eq!(balance, 15.0);
+
+    // Test error handling
+    let error_client = MockOpenRouterClient::with_error(OpenRouterError::AuthenticationFailed);
+    let auth_result = error_client.get_account_balance().await;
+    assert!(auth_result.is_err());
+    assert!(matches!(
+        auth_result.unwrap_err(),
+        OpenRouterError::AuthenticationFailed
+    ));
+
+    println!("Balance monitoring mock test passed");
+}
+
+#[tokio::test]
+async fn test_media_processing_with_mock_openrouter() {
+    // Test the media processing pipeline with mocked OpenRouter responses
+    use alternator::openrouter::{MockOpenRouterClient, OpenRouterApi};
+
+    let mock_client = MockOpenRouterClient::new().with_description(
+        "A professional photograph showing a coffee cup on a wooden table".to_string(),
+    );
+
+    // Simulate processing an image
+    let test_image_data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header bytes
+    let prompt = "Please describe this image in detail for accessibility purposes";
+
+    let description = mock_client
+        .describe_image(&test_image_data, prompt)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        description,
+        "A professional photograph showing a coffee cup on a wooden table"
+    );
+    assert!(!description.is_empty());
+    assert!(description.len() > 10); // Reasonable length
+
+    // Test that text processing also works
+    let text_response = mock_client
+        .process_text("Summarize this content")
+        .await
+        .unwrap();
+
+    assert!(!text_response.is_empty());
+
+    println!("Media processing with mock OpenRouter test passed");
+}
+
+#[tokio::test]
+async fn test_rate_limiting_error_simulation() {
+    // Test rate limiting error handling with mock
+    use alternator::openrouter::{MockOpenRouterClient, OpenRouterApi, OpenRouterError};
+
+    let rate_limited_client =
+        MockOpenRouterClient::with_error(OpenRouterError::RateLimitExceeded { retry_after: 120 });
+
+    let result = rate_limited_client.get_account_balance().await;
+    assert!(result.is_err());
+
+    match result.unwrap_err() {
+        OpenRouterError::RateLimitExceeded { retry_after } => {
+            assert_eq!(retry_after, 120);
+            println!("Rate limit error correctly simulated: retry after {retry_after} seconds");
+        }
+        _ => panic!("Expected RateLimitExceeded error"),
+    }
+
+    // Test image processing with rate limit
+    let image_result = rate_limited_client
+        .describe_image(&[1, 2, 3], "test prompt")
+        .await;
+    assert!(image_result.is_err());
+
+    println!("Rate limiting error simulation test passed");
+}
+
+#[tokio::test]
+async fn test_model_availability_with_mock() {
+    // Test model availability checking with mock
+    use alternator::openrouter::{MockOpenRouterClient, OpenRouterApi};
+
+    let mock_client = MockOpenRouterClient::new();
+    let models = mock_client.list_models().await.unwrap();
+
+    assert!(!models.is_empty());
+    assert_eq!(models.len(), 2);
+
+    // Check that the configured model is in the list
+    let haiku_model = models
+        .iter()
+        .find(|m| m.id == "anthropic/claude-3-haiku")
+        .expect("Should find Claude 3 Haiku model");
+
+    assert_eq!(haiku_model.name, "Claude 3 Haiku");
+    assert!(haiku_model.description.is_some());
+    assert!(haiku_model.pricing.is_some());
+    assert_eq!(haiku_model.context_length, Some(200000));
+
+    println!("Model availability mock test passed");
 }

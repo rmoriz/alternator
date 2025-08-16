@@ -1,6 +1,7 @@
+use crate::config::RuntimeConfig;
 use crate::error::{AlternatorError, MastodonError};
 use crate::language::LanguageDetector;
-use crate::mastodon::{MastodonClient, MastodonStream, TootEvent};
+use crate::mastodon::{MastodonClient, MastodonStream, MediaRecreation, TootEvent};
 use crate::media::MediaProcessor;
 use crate::openrouter::OpenRouterClient;
 use std::collections::HashSet;
@@ -13,6 +14,7 @@ pub struct TootStreamHandler {
     media_processor: MediaProcessor,
     language_detector: LanguageDetector,
     processed_toots: HashSet<String>,
+    config: RuntimeConfig,
 }
 
 impl TootStreamHandler {
@@ -22,6 +24,7 @@ impl TootStreamHandler {
         openrouter_client: OpenRouterClient,
         media_processor: MediaProcessor,
         language_detector: LanguageDetector,
+        config: RuntimeConfig,
     ) -> Self {
         Self {
             mastodon_client,
@@ -29,6 +32,7 @@ impl TootStreamHandler {
             media_processor,
             language_detector,
             processed_toots: HashSet::new(),
+            config,
         }
     }
 
@@ -145,10 +149,11 @@ impl TootStreamHandler {
             return Ok(());
         }
 
-        // Filter media that needs processing
-        let processable_media = self
-            .media_processor
-            .filter_processable_media(&toot.media_attachments);
+        // Filter media that needs processing (with audio awareness)
+        let processable_media = self.media_processor.filter_processable_media_with_audio(
+            &toot.media_attachments,
+            self.config.is_audio_enabled(),
+        );
 
         if processable_media.is_empty() {
             debug!(
@@ -176,8 +181,8 @@ impl TootStreamHandler {
             detected_language
         );
 
-        // Process each media attachment and collect successful descriptions with image data
-        let mut media_recreations = Vec::new();
+        // Process each media attachment and collect successful descriptions with media data
+        let mut media_recreations: Vec<MediaRecreation> = Vec::new();
         let mut original_media_ids = Vec::new();
 
         // First pass: Prepare all media for processing (downloads and preprocessing)
@@ -206,6 +211,182 @@ impl TootStreamHandler {
                 }
             }
 
+            // Handle audio files separately from images
+            if media.media_type.to_lowercase().starts_with("audio") {
+                // Check if audio processing is enabled
+                if !self.config.is_audio_enabled() {
+                    debug!(
+                        "Audio processing disabled, skipping audio file: {} ({})",
+                        media.id, media.media_type
+                    );
+                    continue;
+                }
+
+                info!("Processing audio file: {} ({})", media.id, media.media_type);
+
+                // Download original audio data for recreation
+                let original_audio_data = match self
+                    .media_processor
+                    .download_media_for_recreation(media)
+                    .await
+                {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(
+                            "Failed to download audio {} for recreation: {}",
+                            media.id, e
+                        );
+                        continue;
+                    }
+                };
+
+                // Transcribe the audio to get description
+                match crate::media::process_audio_for_transcript(
+                    media,
+                    self.config.config.whisper(),
+                    Some(&self.config.config.openrouter),
+                )
+                .await
+                {
+                    Ok(transcript) => {
+                        info!(
+                            "Generated transcript for audio {}: {}",
+                            media.id, transcript
+                        );
+                        // Determine appropriate file extension for audio
+                        let extension = match media.media_type.as_str() {
+                            "audio/mpeg" | "audio/mp3" => "mp3",
+                            "audio/wav" | "audio/wave" | "audio/x-wav" => "wav",
+                            "audio/m4a" => "m4a",
+                            "audio/mp4" => "mp4",
+                            "audio/aac" => "aac",
+                            "audio/ogg" => "ogg",
+                            "audio/flac" | "audio/x-flac" => "flac",
+                            _ => "audio", // fallback
+                        };
+                        let filename = format!("audio_{}.{}", media.id, extension);
+
+                        // Add to media recreations for batch processing
+                        media_recreations.push(MediaRecreation {
+                            data: original_audio_data,
+                            description: transcript,
+                            media_type: media.media_type.clone(),
+                            filename,
+                        });
+                        // Track original media ID for cleanup
+                        original_media_ids.push(media.id.clone());
+                    }
+                    Err(crate::error::MediaError::UnsupportedType { .. }) => {
+                        warn!(
+                            "Audio type {} not supported for transcription, skipping",
+                            media.media_type
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("Failed to transcribe audio {}: {}", media.id, e);
+                        continue;
+                    }
+                }
+
+                // Skip to next media (don't process as image)
+                continue;
+            }
+
+            // Handle video files separately from images
+            if media.media_type.to_lowercase().starts_with("video") {
+                debug!(
+                    "Detected video media: '{}' (type: '{}')",
+                    media.id, media.media_type
+                );
+
+                // Check if audio processing is enabled (required for video transcription)
+                if !self.config.is_audio_enabled() {
+                    debug!(
+                        "Audio processing disabled, skipping video file: {} ({})",
+                        media.id, media.media_type
+                    );
+                    continue;
+                }
+
+                info!("Processing video file: {} ({})", media.id, media.media_type);
+
+                // Download original video data for recreation
+                debug!(
+                    "About to download video data for media: {} with type: '{}'",
+                    media.id, media.media_type
+                );
+                let original_video_data = match self
+                    .media_processor
+                    .download_media_for_recreation(media)
+                    .await
+                {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(
+                            "Failed to download video {} for recreation: {}",
+                            media.id, e
+                        );
+                        continue;
+                    }
+                };
+
+                // Transcribe the video audio to get description
+                match crate::media::process_video_for_transcript(
+                    media,
+                    self.config.config.whisper(),
+                    Some(&self.config.config.openrouter),
+                )
+                .await
+                {
+                    Ok(transcript) => {
+                        info!(
+                            "Generated transcript for video {}: {}",
+                            media.id, transcript
+                        );
+                        // Determine appropriate file extension for video
+                        let extension = match media.media_type.as_str() {
+                            "video/mp4" => "mp4",
+                            "video/mpeg" => "mpeg",
+                            "video/quicktime" => "mov",
+                            "video/x-msvideo" => "avi",
+                            "video/webm" => "webm",
+                            "video/x-ms-wmv" => "wmv",
+                            "video/x-flv" => "flv",
+                            "video/3gpp" => "3gp",
+                            "video/x-matroska" => "mkv",
+                            _ => "video", // fallback
+                        };
+                        let filename = format!("video_{}.{}", media.id, extension);
+
+                        // Add to media recreations for batch processing
+                        media_recreations.push(MediaRecreation {
+                            data: original_video_data,
+                            description: transcript,
+                            media_type: media.media_type.clone(),
+                            filename,
+                        });
+                        // Track original media ID for cleanup
+                        original_media_ids.push(media.id.clone());
+                    }
+                    Err(crate::error::MediaError::UnsupportedType { .. }) => {
+                        warn!(
+                            "Video type {} not supported for transcription, skipping",
+                            media.media_type
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("Failed to transcribe video {}: {}", media.id, e);
+                        continue;
+                    }
+                }
+
+                // Skip to next media (don't process as image)
+                continue;
+            }
+
+            // Process non-audio media (images) through the existing pipeline
             // Download original image data for recreation
             let original_image_data = match self
                 .media_processor
@@ -232,68 +413,89 @@ impl TootStreamHandler {
                     }
                 };
 
-            prepared_media.push((media.id.clone(), original_image_data, processed_media_data));
+            prepared_media.push((media.clone(), original_image_data, processed_media_data));
         }
 
-        if prepared_media.is_empty() {
+        if prepared_media.is_empty() && media_recreations.is_empty() {
             debug!("No media could be prepared for processing");
             return Ok(());
         }
 
-        info!(
-            "Prepared {} media attachments, starting parallel description generation",
-            prepared_media.len()
-        );
-
-        // Second pass: Generate descriptions in parallel using OpenRouter
-        let description_tasks: Vec<_> = prepared_media
-            .iter()
-            .map(|(media_id, _original_data, processed_data)| {
-                let openrouter_client = &self.openrouter_client;
-                let media_id = media_id.clone();
-                async move {
-                    let result = openrouter_client
-                        .describe_image(processed_data, prompt_template)
-                        .await;
-                    (media_id, result)
-                }
-            })
-            .collect();
-
-        let description_results = futures_util::future::join_all(description_tasks).await;
-
-        // Process results and build media recreations
-        for ((media_id, original_data, _processed_data), (result_media_id, description_result)) in
-            prepared_media
-                .into_iter()
-                .zip(description_results.into_iter())
-        {
-            debug_assert_eq!(
-                media_id, result_media_id,
-                "Media ID mismatch in parallel processing"
+        // Process images if any are prepared
+        if !prepared_media.is_empty() {
+            info!(
+                "Prepared {} media attachments, starting parallel description generation",
+                prepared_media.len()
             );
 
-            match description_result {
-                Ok(description) => {
-                    info!(
-                        "Generated description for media {}: {}",
-                        media_id, description
-                    );
-                    // Add to media recreations for batch processing
-                    media_recreations.push((original_data, description));
-                    // Track original media ID for cleanup
-                    original_media_ids.push(media_id);
-                }
-                Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
-                    warn!("Token limit exceeded for media {}, skipping", media_id);
-                    continue; // Skip this media but continue with others
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to generate description for media {}: {}",
-                        media_id, e
-                    );
-                    return Err(AlternatorError::OpenRouter(e));
+            // Second pass: Generate descriptions in parallel using OpenRouter
+            let description_tasks: Vec<_> = prepared_media
+                .iter()
+                .map(|(media, _original_data, processed_data)| {
+                    let openrouter_client = &self.openrouter_client;
+                    let media_id = media.id.clone();
+                    async move {
+                        let result = openrouter_client
+                            .describe_image(processed_data, prompt_template)
+                            .await;
+                        (media_id, result)
+                    }
+                })
+                .collect();
+
+            let description_results = futures_util::future::join_all(description_tasks).await;
+
+            // Process results and build media recreations
+            for ((media, original_data, _processed_data), (result_media_id, description_result)) in
+                prepared_media
+                    .into_iter()
+                    .zip(description_results.into_iter())
+            {
+                debug_assert_eq!(
+                    media.id, result_media_id,
+                    "Media ID mismatch in parallel processing"
+                );
+
+                match description_result {
+                    Ok(description) => {
+                        info!(
+                            "Generated description for media {}: {}",
+                            media.id, description
+                        );
+
+                        // Determine appropriate file extension for images
+                        let extension = match media.media_type.as_str() {
+                            "image/jpeg" => "jpg",
+                            "image/png" => "png",
+                            "image/gif" => "gif",
+                            "image/webp" => "webp",
+                            "image/bmp" => "bmp",
+                            "image/tiff" => "tiff",
+                            _ => "jpg", // fallback to jpg for unknown image types
+                        };
+                        let filename = format!("image_{}.{}", media.id, extension);
+
+                        // Add to media recreations for batch processing
+                        media_recreations.push(MediaRecreation {
+                            data: original_data,
+                            description,
+                            media_type: media.media_type.clone(),
+                            filename,
+                        });
+                        // Track original media ID for cleanup
+                        original_media_ids.push(media.id);
+                    }
+                    Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
+                        warn!("Token limit exceeded for media {}, skipping", media.id);
+                        continue; // Skip this media but continue with others
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to generate description for media {}: {}",
+                            media.id, e
+                        );
+                        return Err(AlternatorError::OpenRouter(e));
+                    }
                 }
             }
         }
@@ -461,8 +663,8 @@ impl TootStreamHandler {
     async fn recreate_media_with_race_check(
         &self,
         toot_id: &str,
-        media_recreations: Vec<(Vec<u8>, String)>, // Vec of (image_data, description)
-        original_media_ids: Vec<String>,           // Original media IDs to clean up after success
+        media_recreations: Vec<MediaRecreation>, // Vec of media recreations with descriptions
+        original_media_ids: Vec<String>,         // Original media IDs to clean up after success
     ) -> Result<(), AlternatorError> {
         if media_recreations.is_empty() {
             return Ok(());
@@ -552,7 +754,10 @@ pub struct ProcessingStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{MastodonConfig, OpenRouterConfig};
+    use crate::config::{
+        BalanceConfig, Config, LoggingConfig, MastodonConfig, MediaConfig, OpenRouterConfig,
+        RuntimeConfig, WhisperConfig,
+    };
     use crate::mastodon::{Account, MediaAttachment, MediaDimensions, MediaMeta};
     use chrono::Utc;
 
@@ -568,9 +773,23 @@ mod tests {
         OpenRouterConfig {
             api_key: "test_key".to_string(),
             model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }
+    }
+
+    fn create_test_runtime_config() -> RuntimeConfig {
+        let config = Config {
+            mastodon: create_test_mastodon_config(),
+            openrouter: create_test_openrouter_config(),
+            media: Some(MediaConfig::default()),
+            balance: Some(BalanceConfig::default()),
+            logging: Some(LoggingConfig::default()),
+            whisper: Some(WhisperConfig::default()),
+        };
+        RuntimeConfig::new(config)
     }
 
     #[allow(dead_code)] // Test helper function
@@ -624,12 +843,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         assert_eq!(handler.processed_toots.len(), 0);
@@ -641,12 +862,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Initially not processed
@@ -666,12 +889,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Add many processed toots to trigger cleanup
@@ -689,12 +914,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Test with toot that has language attribute
@@ -736,12 +963,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let stats = handler.get_processing_stats();
@@ -760,12 +989,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         handler.mark_as_processed("toot1".to_string());
@@ -792,12 +1023,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let toot = create_test_toot("123", vec![]);
@@ -811,12 +1044,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let mut toot = create_test_toot("123", vec![]);
@@ -832,12 +1067,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let mut toot = create_test_toot("123", vec![]);
@@ -854,12 +1091,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let mut toot = create_test_toot("123", vec![]);
@@ -915,12 +1154,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         assert_eq!(handler.get_processing_stats().processed_toots_count, 0);
@@ -939,12 +1180,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Mark a toot as processed multiple times
@@ -963,12 +1206,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let mut handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Test that cache management works properly
@@ -990,12 +1235,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         // Test that toot language attribute takes priority over content detection
@@ -1109,12 +1356,14 @@ mod tests {
         let openrouter_client = OpenRouterClient::new(create_test_openrouter_config());
         let media_processor = MediaProcessor::with_default_config();
         let language_detector = LanguageDetector::new();
+        let _config = create_test_runtime_config();
 
         let handler = TootStreamHandler::new(
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
+            _config,
         );
 
         let mut toot = create_test_toot("123", vec![]);

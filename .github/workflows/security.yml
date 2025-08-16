@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -20,7 +20,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
 
     - name: Install cargo-edit
       run: cargo install cargo-edit
@@ -39,7 +39,7 @@ jobs:
         cargo audit
 
     - name: Create Pull Request
-      uses: peter-evans/create-pull-request@v5
+      uses: peter-evans/create-pull-request@v7
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: 'chore: Update dependencies'
@@ -63,13 +63,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
 
     - name: Install security scanning tools
       run: |

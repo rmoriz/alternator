@@ -1,5 +1,11 @@
 # Alternator Configuration Example
 # Copy this file to alternator.toml and customize for your setup
+#
+# Features:
+# - AI-powered image description generation
+# - Audio transcription with Whisper (requires FFmpeg)
+# - Balance monitoring and notifications
+# - Configurable media processing settings
 
 [mastodon]
 # Your Mastodon instance URL (required)
@@ -20,6 +26,7 @@ user_stream = true
 api_key = "your_openrouter_api_key_here"
 
 # AI model to use for image descriptions (optional, default: "mistralai/mistral-small-3.2-24b-instruct:free")
+# This field is kept for backward compatibility. If vision_model is not set, this will be used for vision tasks.
 # FREE MODELS (recommended to start with):
 # - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free vision model with strong performance)
 # - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free vision model with large context)
@@ -28,6 +35,25 @@ api_key = "your_openrouter_api_key_here"
 # PAID MODELS (higher quality):
 # - "google/gemini-2.5-flash-lite" (Google's latest efficient vision model)
 model = "mistralai/mistral-small-3.2-24b-instruct:free"
+
+# AI model to use specifically for vision tasks (image description)
+# If not set, will use the 'model' field above for backward compatibility
+# RECOMMENDED VISION MODELS:
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free vision model)
+# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free vision model with large context)
+# - "meta-llama/llama-3.2-11b-vision-instruct:free" (Meta's free vision model)
+# - "google/gemini-2.5-flash-lite" (Google's latest efficient vision model, paid)
+vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
+
+# AI model to use specifically for text tasks (audio transcription summarization)
+# If not set, will use the 'model' field above for backward compatibility
+# RECOMMENDED TEXT MODELS:
+# - "tngtech/deepseek-r1t2-chimera:free" (excellent free text model for summarization)
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent free text model)
+# - "meta-llama/llama-3.1-8b-instruct:free" (Meta's free text model)
+# - "gryphe/mythomist-7b:free" (good free model for summarization)
+# - "anthropic/claude-3-haiku" (fast and efficient, paid)
+text_model = "tngtech/deepseek-r1t2-chimera:free"
 
 # OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
 base_url = "https://openrouter.ai/api/v1"
@@ -42,8 +68,15 @@ max_tokens = 200
 # Maximum file size to process in MB (optional, default: 10)
 max_size_mb = 10
 
-# Supported image formats (optional, default: JPEG, PNG, GIF, WebP)
-supported_formats = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+# Supported formats (optional, default: JPEG, PNG, GIF, WebP + audio formats)
+# Image formats: JPEG, PNG, GIF, WebP (always supported)
+# Audio formats: MP3, WAV, M4A, OGG, FLAC, AAC (requires FFmpeg + Whisper enabled)
+# Note: Audio files will be skipped if FFmpeg is not available or Whisper is disabled
+supported_formats = [
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "audio/mpeg", "audio/mp3", "audio/wav", "audio/wave", "audio/x-wav",
+    "audio/mp4", "audio/m4a", "audio/aac", "audio/ogg", "audio/webm", "audio/flac"
+]
 
 # Maximum dimension for image resizing (optional, default: 2048)
 # Images larger than this will be resized to fit within these dimensions
@@ -67,6 +100,38 @@ check_time = "12:00"
 # Options: "error", "warn", "info", "debug", "trace"
 level = "info"
 
+[whisper]
+# Enable audio transcription with Whisper (optional, default: false)
+# REQUIRES: FFmpeg must be installed for audio processing
+# When enabled, audio attachments will be transcribed and re-uploaded with transcript as description
+# Install FFmpeg: https://ffmpeg.org/download.html
+enabled = false
+
+# Whisper model to use (optional, default: "base")
+# Available models: "tiny", "base", "small", "medium", "large"
+# Larger models provide better accuracy but require more resources
+# "tiny": fastest, lowest accuracy (~39 MB)
+# "base": good balance (~74 MB) 
+# "small": better accuracy (~244 MB)
+# "medium": high accuracy (~769 MB)
+# "large": highest accuracy (~1550 MB)
+model = "base"
+
+# Directory to store Whisper models (optional)
+# If not specified, uses ~/.alternator/models/
+# Can also be set via ALTERNATOR_WHISPER_MODEL_DIR environment variable
+# model_dir = "/path/to/whisper/models"
+
+# Language for transcription (optional, default: auto-detect)
+# Use language codes like "en", "de", "fr", "es", etc.
+# Set to "auto" or omit for automatic language detection
+# language = "en"
+
+# Maximum audio duration to process in minutes (optional, default: 10)
+# Audio files longer than this will be skipped to prevent excessive processing
+# Set to 0 to disable the limit (not recommended)
+max_duration_minutes = 10
+
 # Example of environment variable overrides:
 # You can override any configuration value using environment variables
 # with the prefix ALTERNATOR_ and uppercase section/key names:
@@ -75,13 +140,35 @@ level = "info"
 # ALTERNATOR_MASTODON_ACCESS_TOKEN=your_token
 # ALTERNATOR_OPENROUTER_API_KEY=your_key
 # ALTERNATOR_OPENROUTER_MODEL=anthropic/claude-3-sonnet
+# ALTERNATOR_OPENROUTER_VISION_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
+# ALTERNATOR_OPENROUTER_TEXT_MODEL=tngtech/deepseek-r1t2-chimera:free
 # ALTERNATOR_OPENROUTER_MAX_TOKENS=200
 # ALTERNATOR_BALANCE_ENABLED=false
 # ALTERNATOR_BALANCE_THRESHOLD=10.0
 # ALTERNATOR_LOG_LEVEL=debug
+# ALTERNATOR_WHISPER_ENABLED=true
+# ALTERNATOR_WHISPER_MODEL=small
+# ALTERNATOR_WHISPER_MODEL_DIR=/custom/whisper/models
+# ALTERNATOR_WHISPER_LANGUAGE=en
+# ALTERNATOR_WHISPER_MAX_DURATION_MINUTES=15
+#
+# Example whisper section in TOML:
+#
+# [whisper]
+# enabled = true
+# model = "base"
+# max_duration_minutes = 10
 #
 # Quick Start Commands:
 # 1. Copy this file: cp alternator.toml.example alternator.toml
 # 2. Edit your credentials above
 # 3. Run: ./alternator --config alternator.toml
 # 4. Check logs for connection status and first image descriptions
+#
+# Audio Transcription Setup (optional):
+# 1. Install FFmpeg: https://ffmpeg.org/download.html
+#    - macOS: brew install ffmpeg
+#    - Ubuntu: sudo apt install ffmpeg
+#    - Windows: Download from ffmpeg.org
+# 2. Set whisper.enabled = true in your config
+# 3. Audio files will be automatically transcribed and re-uploaded with descriptions

@@ -25,9 +25,10 @@ RUN cargo build --release
 # Runtime stage with minimal base image
 FROM debian:trixie-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including FFmpeg for audio/video processing
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user with same UID as builder stage

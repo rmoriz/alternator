@@ -1,5 +1,5 @@
 use crate::config::OpenRouterConfig;
-use crate::error::OpenRouterError;
+use async_trait::async_trait;
 use base64::prelude::*;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,26 @@ use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
+// Re-export OpenRouterError so tests can access it
+pub use crate::error::OpenRouterError;
+
+/// Trait for OpenRouter API operations to enable mocking in tests
+#[async_trait]
+pub trait OpenRouterApi {
+    #[allow(dead_code)]
+    async fn get_account_balance(&self) -> Result<f64, OpenRouterError>;
+    #[allow(dead_code)]
+    async fn list_models(&self) -> Result<Vec<Model>, OpenRouterError>;
+    #[allow(dead_code)]
+    async fn describe_image(
+        &self,
+        image_data: &[u8],
+        prompt: &str,
+    ) -> Result<String, OpenRouterError>;
+    #[allow(dead_code)]
+    async fn process_text(&self, prompt: &str) -> Result<String, OpenRouterError>;
+}
 
 /// Rate limiter for API calls with exponential backoff
 #[derive(Debug)]
@@ -205,11 +225,15 @@ impl OpenRouterClient {
         // Remove any null bytes and non-printable control characters (except newlines/tabs)
         let cleaned: String = text
             .chars()
-            .filter(|&c| c == '\n' || c == '\t' || (!c.is_control() && c != '\0'))
+            .filter(|&c| c != '\0' && (c == '\n' || c == '\t' || (!c.is_control())))
             .collect();
 
-        // Normalize unicode and ensure valid UTF-8
-        cleaned.trim().to_string()
+        // Normalize Unicode using NFC (Canonical Composition) to ensure consistent encoding
+        use unicode_normalization::UnicodeNormalization;
+        let normalized: String = cleaned.nfc().collect();
+
+        // Trim whitespace and return
+        normalized.trim().to_string()
     }
 
     /// Safely truncate text at character boundaries, preferring word boundaries
@@ -218,16 +242,18 @@ impl OpenRouterClient {
             return text.to_string();
         }
 
-        // Collect characters up to the limit
-        let chars: Vec<char> = text.chars().take(max_chars).collect();
-        let truncated: String = chars.iter().collect();
+        // Take only the allowed number of characters (Unicode-safe)
+        let char_vec: Vec<char> = text.chars().take(max_chars).collect();
+        let truncated: String = char_vec.iter().collect();
 
         // Try to find the last space to avoid cutting words
-        if let Some(last_space) = truncated.rfind(' ') {
-            let last_space_char_pos = truncated.chars().take(last_space).count();
+        if let Some(last_space_byte_pos) = truncated.rfind(' ') {
+            // Count characters to the last space position (Unicode-safe)
+            let last_space_char_pos = truncated[..last_space_byte_pos].chars().count();
+
             // Only use space if it's not too early (at least 75% of the limit)
             if last_space_char_pos > max_chars * 3 / 4 {
-                return format!("{}…", &truncated[..last_space]);
+                return format!("{}…", &truncated[..last_space_byte_pos]);
             }
         }
 
@@ -308,6 +334,35 @@ impl OpenRouterClient {
                     });
                 }
 
+                // Check for provider failures (common with OpenRouter)
+                if error_msg.to_lowercase().contains("provider")
+                    && (error_msg.to_lowercase().contains("error")
+                        || error_msg.to_lowercase().contains("failed")
+                        || error_msg.to_lowercase().contains("exhausted")
+                        || error_msg.to_lowercase().contains("unavailable"))
+                {
+                    // Extract provider name if available
+                    let provider = if let Some(start) = error_msg.find("Provider: ") {
+                        let provider_part = &error_msg[start + 10..];
+                        provider_part
+                            .split(|c: char| c == ')' || c == ',' || c.is_whitespace())
+                            .next()
+                            .unwrap_or("Unknown")
+                            .to_string()
+                    } else {
+                        "Unknown".to_string()
+                    };
+
+                    warn!(
+                        "OpenRouter provider failure detected: {} (Provider: {})",
+                        error_msg, provider
+                    );
+                    return Err(OpenRouterError::ProviderFailure {
+                        provider,
+                        message: error_msg,
+                    });
+                }
+
                 return Err(OpenRouterError::ApiRequestFailed(error_msg));
             }
 
@@ -318,7 +373,12 @@ impl OpenRouterClient {
 
         serde_json::from_str(&response_text).map_err(|e| {
             error!("Failed to parse OpenRouter response: {}", e);
-            debug!("Raw OpenRouter response text: {}", response_text);
+            // Only log raw response text if it's reasonably short and safe
+            if response_text.len() <= 1000 && response_text.chars().all(|c| c.is_ascii() || c.is_whitespace()) {
+                debug!("Raw OpenRouter response text: {}", response_text);
+            } else {
+                debug!("Raw OpenRouter response text too large or contains non-ASCII characters (length: {})", response_text.len());
+            }
             OpenRouterError::InvalidResponse(format!("JSON parsing failed: {e}"))
         })
     }
@@ -343,6 +403,26 @@ impl OpenRouterClient {
             }
 
             debug!("Making OpenRouter API request (attempt {})", attempt + 1);
+
+            // Log request details for debugging
+            info!("=== HTTP Request Debug (attempt {}) ===", attempt + 1);
+            info!(
+                "Authorization: Bearer {}...{}",
+                if self.config.api_key.len() > 8 {
+                    &self.config.api_key[..4]
+                } else {
+                    "****"
+                },
+                if self.config.api_key.len() > 8 {
+                    &self.config.api_key[self.config.api_key.len() - 4..]
+                } else {
+                    "****"
+                }
+            );
+            info!("Content-Type: application/json");
+            info!("HTTP-Referer: https://github.com/rmoriz/alternator");
+            info!("X-Title: Alternator - Mastodon Media Describer");
+            info!("=== End HTTP Request Debug ===");
 
             let response = request_fn()
                 .header("Authorization", format!("Bearer {}", self.config.api_key))
@@ -470,6 +550,19 @@ impl OpenRouterClient {
         image_data: &[u8],
         prompt: &str,
     ) -> Result<String, OpenRouterError> {
+        // Validate input parameters
+        if image_data.is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty image data provided".to_string(),
+            ));
+        }
+
+        if prompt.trim().is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty prompt provided".to_string(),
+            ));
+        }
+
         // Replace {model} placeholder in prompt with actual model name
         let processed_prompt = prompt.replace("{model}", &self.config.model);
 
@@ -530,8 +623,16 @@ impl OpenRouterClient {
             ));
         }
 
+        // Validate that we have at least one choice with content
+        let choice = &response.choices[0];
+        if choice.message.content.trim().is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty content in response choice".to_string(),
+            ));
+        }
+
         // Extract the main content (not reasoning tokens) from the response
-        let raw_description = response.choices[0].message.content.trim();
+        let raw_description = choice.message.content.trim();
 
         // Sanitize the description to remove any problematic characters
         let description = Self::sanitize_description(raw_description);
@@ -540,15 +641,16 @@ impl OpenRouterClient {
             "OpenRouter response - raw length: {}, sanitized length: {}, content preview: '{}'",
             raw_description.len(),
             description.len(),
+            // Use safe_truncate for Unicode-safe preview
             if description.chars().count() > 100 {
-                format!("{}...", description.chars().take(100).collect::<String>())
+                Self::safe_truncate(&description, 100)
             } else {
                 description.to_string()
             }
         );
 
         // Log if reasoning tokens were present but excluded
-        if let Some(reasoning) = &response.choices[0].message.reasoning {
+        if let Some(reasoning) = &choice.message.reasoning {
             debug!(
                 "Reasoning tokens were present but excluded: {} chars",
                 reasoning.len()
@@ -595,6 +697,274 @@ impl OpenRouterClient {
         debug!("Generated description: {}", final_description);
         Ok(final_description)
     }
+
+    /// Process text using OpenRouter API (for transcript summarization)
+    pub async fn process_text(&self, prompt: &str) -> Result<String, OpenRouterError> {
+        // Validate input parameters
+        if prompt.trim().is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty prompt provided".to_string(),
+            ));
+        }
+
+        debug!("Processing text using model: {}", self.config.text_model);
+
+        // Build the request for text processing
+        let request = serde_json::json!({
+            "model": self.config.text_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "max_tokens": self.config.max_tokens,
+            "reasoning": {
+                "exclude": true
+            }
+        });
+
+        // Log the complete request for debugging
+        info!("=== OpenRouter Request Debug ===");
+        info!("URL: {}/chat/completions", self.base_url());
+        info!("Headers:");
+        info!(
+            "  Authorization: Bearer {}",
+            if self.config.api_key.len() > 10 {
+                format!(
+                    "{}...{}",
+                    &self.config.api_key[..4],
+                    &self.config.api_key[self.config.api_key.len() - 4..]
+                )
+            } else {
+                "[REDACTED]".to_string()
+            }
+        );
+        info!("  Content-Type: application/json");
+        info!("  HTTP-Referer: https://github.com/rmoriz/alternator");
+        info!("  X-Title: Alternator - Mastodon Media Describer");
+        info!("Request Body:");
+        info!(
+            "{}",
+            serde_json::to_string_pretty(&request)
+                .unwrap_or_else(|_| "Failed to serialize request".to_string())
+        );
+        info!("=== End OpenRouter Request Debug ===");
+
+        let response: ImageDescriptionResponse = self
+            .api_request_with_retry(
+                || {
+                    self.http_client
+                        .post(format!("{}/chat/completions", self.base_url()))
+                        .json(&request)
+                },
+                2, // Only retry twice for text processing to avoid excessive costs
+            )
+            .await?;
+
+        if response.choices.is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "No choices in response".to_string(),
+            ));
+        }
+
+        // Validate that we have at least one choice with content
+        let choice = &response.choices[0];
+        if choice.message.content.trim().is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty content in response choice".to_string(),
+            ));
+        }
+
+        // Extract the content from the response
+        let raw_text = choice.message.content.trim();
+
+        // Sanitize the text to remove any problematic characters
+        let processed_text = Self::sanitize_description(raw_text);
+
+        debug!(
+            "OpenRouter text processing - raw length: {}, sanitized length: {}, content preview: '{}'",
+            raw_text.len(),
+            processed_text.len(),
+            // Use safe_truncate for Unicode-safe preview
+            if processed_text.chars().count() > 100 {
+                Self::safe_truncate(&processed_text, 100)
+            } else {
+                processed_text.to_string()
+            }
+        );
+
+        // Log token usage if available
+        if let Some(usage) = response.usage {
+            debug!(
+                "Token usage - Prompt: {:?}, Completion: {:?}, Total: {:?}",
+                usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+            );
+
+            // Check if we hit the token limit
+            if let Some(max_tokens) = self.config.max_tokens {
+                if let Some(total) = usage.total_tokens {
+                    if total >= max_tokens {
+                        warn!("Token limit reached: {}/{}", total, max_tokens);
+                    }
+                }
+            }
+        }
+
+        if processed_text.is_empty() {
+            return Err(OpenRouterError::InvalidResponse(
+                "Empty processed text returned".to_string(),
+            ));
+        }
+
+        debug!("Processed text: {}", processed_text);
+        Ok(processed_text)
+    }
+}
+
+#[async_trait]
+impl OpenRouterApi for OpenRouterClient {
+    async fn get_account_balance(&self) -> Result<f64, OpenRouterError> {
+        self.get_account_balance().await
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, OpenRouterError> {
+        self.list_models().await
+    }
+
+    async fn describe_image(
+        &self,
+        image_data: &[u8],
+        prompt: &str,
+    ) -> Result<String, OpenRouterError> {
+        self.describe_image(image_data, prompt).await
+    }
+
+    async fn process_text(&self, prompt: &str) -> Result<String, OpenRouterError> {
+        self.process_text(prompt).await
+    }
+}
+
+/// Mock OpenRouter client for testing
+#[derive(Debug)]
+pub struct MockOpenRouterClient {
+    pub balance: f64,
+    #[allow(dead_code)]
+    // Used in test configurations but may not be detected by clippy in --all-targets mode
+    pub models: Vec<Model>,
+    pub description_response: String,
+    pub text_response: String,
+    #[allow(dead_code)]
+    // Used in test implementations but may not be detected by clippy in --all-targets mode
+    pub should_fail: bool,
+    #[allow(dead_code)]
+    // Used in test implementations but may not be detected by clippy in --all-targets mode
+    pub error_type: Option<OpenRouterError>,
+}
+
+impl Default for MockOpenRouterClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MockOpenRouterClient {
+    pub fn new() -> Self {
+        Self {
+            balance: 25.50,
+            models: vec![
+                Model {
+                    id: "anthropic/claude-3-haiku".to_string(),
+                    name: "Claude 3 Haiku".to_string(),
+                    description: Some("Fast and efficient model".to_string()),
+                    pricing: Some(ModelPricing {
+                        prompt: "0.00025".to_string(),
+                        completion: "0.00125".to_string(),
+                    }),
+                    context_length: Some(200000),
+                },
+                Model {
+                    id: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                    name: "Mistral Small".to_string(),
+                    description: Some("Free model for testing".to_string()),
+                    pricing: Some(ModelPricing {
+                        prompt: "0.0".to_string(),
+                        completion: "0.0".to_string(),
+                    }),
+                    context_length: Some(32768),
+                },
+            ],
+            description_response: "A beautiful sunset over the ocean with warm orange and pink colors reflecting on the water.".to_string(),
+            text_response: "This is a summarized version of the provided text.".to_string(),
+            should_fail: false,
+            error_type: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_error(error: OpenRouterError) -> Self {
+        Self {
+            balance: 25.50,
+            models: vec![],
+            description_response: String::new(),
+            text_response: String::new(),
+            should_fail: true,
+            error_type: Some(error),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_balance(mut self, balance: f64) -> Self {
+        self.balance = balance;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description_response = description;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_text_response(mut self, text_response: String) -> Self {
+        self.text_response = text_response;
+        self
+    }
+}
+
+#[async_trait]
+impl OpenRouterApi for MockOpenRouterClient {
+    async fn get_account_balance(&self) -> Result<f64, OpenRouterError> {
+        if self.should_fail {
+            return Err(self.error_type.as_ref().unwrap().clone());
+        }
+        Ok(self.balance)
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, OpenRouterError> {
+        if self.should_fail {
+            return Err(self.error_type.as_ref().unwrap().clone());
+        }
+        Ok(self.models.clone())
+    }
+
+    async fn describe_image(
+        &self,
+        _image_data: &[u8],
+        _prompt: &str,
+    ) -> Result<String, OpenRouterError> {
+        if self.should_fail {
+            return Err(self.error_type.as_ref().unwrap().clone());
+        }
+        Ok(self.description_response.clone())
+    }
+
+    async fn process_text(&self, _prompt: &str) -> Result<String, OpenRouterError> {
+        if self.should_fail {
+            return Err(self.error_type.as_ref().unwrap().clone());
+        }
+        Ok(self.text_response.clone())
+    }
 }
 
 #[cfg(test)]
@@ -606,6 +976,8 @@ mod tests {
         OpenRouterConfig {
             api_key: "test_key".to_string(),
             model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }
@@ -1014,6 +1386,8 @@ mod tests {
         let config = OpenRouterConfig {
             api_key: "test".to_string(),
             model: "test-model".to_string(),
+            vision_model: "test-vision-model".to_string(),
+            text_model: "test-text-model".to_string(),
             base_url: None,
             max_tokens: None,
         };

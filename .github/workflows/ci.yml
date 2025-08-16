@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, glibc ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, glibc ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # Simplified matrix: test stable on both platforms, beta only on Linux
+        # Test stable on both platforms
         include:
           - os: ubuntu-latest
             rust: stable
@@ -23,13 +23,10 @@ jobs:
           - os: macos-latest  
             rust: stable
             run_checks: false
-          - os: ubuntu-latest
-            rust: beta
-            run_checks: false
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -38,7 +35,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
       with:
         key: ${{ runner.os }}-${{ matrix.rust }}
 
@@ -54,7 +51,7 @@ jobs:
       run: cargo test --verbose --all-features
 
     - name: Run integration tests
-      run: cargo test --test integration_tests --verbose
+      run: cargo test --test integration_tests --verbose -- --test-threads=1
 
     - name: Test build in release mode
       run: cargo build --release --verbose
@@ -64,13 +61,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
@@ -83,19 +80,19 @@ jobs:
     name: Build Linux Binaries
     runs-on: ubuntu-latest
     needs: [test, security-audit]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/glibc')
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
+          - target: x86_64-unknown-linux-gnu
             artifact_name: alternator
             docker_arch: linux-amd64
-          - target: aarch64-unknown-linux-musl
+          - target: aarch64-unknown-linux-gnu
             artifact_name: alternator
             docker_arch: linux-arm64
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -103,7 +100,7 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
       with:
         key: ubuntu-${{ matrix.target }}-release
 
@@ -131,7 +128,7 @@ jobs:
     name: Build macOS Binaries
     runs-on: macos-latest
     needs: [test, security-audit]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/glibc')
     strategy:
       matrix:
         include:
@@ -143,7 +140,7 @@ jobs:
             docker_arch: darwin-arm64
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -151,7 +148,7 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Configure Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@v2.8.0
       with:
         key: macos-${{ matrix.target }}-release
 
@@ -180,7 +177,7 @@ jobs:
       packages: write
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download Linux AMD64 binary
       uses: actions/download-artifact@v4
@@ -221,7 +218,7 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./Dockerfile.optimized

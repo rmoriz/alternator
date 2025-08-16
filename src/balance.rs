@@ -1,6 +1,7 @@
 use crate::config::BalanceConfig;
 use crate::error::BalanceError;
-use crate::mastodon::MastodonStream;
+#[allow(unused_imports)]
+use crate::mastodon::{MastodonStream, MediaRecreation};
 use crate::openrouter::OpenRouterClient;
 use chrono::{DateTime, Local, NaiveTime, Timelike, Utc};
 use std::time::Duration;
@@ -392,17 +393,19 @@ mod tests {
 
         async fn create_media_attachment(
             &self,
-            _image_data: Vec<u8>,
+            _media_data: Vec<u8>,
             _description: &str,
             _filename: &str,
+            _media_type: &str,
         ) -> Result<String, MastodonError> {
             Ok("mock_media_id".to_string())
         }
 
+        #[allow(unused_variables)]
         async fn recreate_media_with_descriptions(
             &self,
             _toot_id: &str,
-            _media_recreations: Vec<(Vec<u8>, String)>,
+            _media_recreations: Vec<MediaRecreation>,
             _original_media_ids: Vec<String>,
         ) -> Result<(), MastodonError> {
             Ok(())
@@ -475,6 +478,8 @@ mod tests {
         OpenRouterConfig {
             api_key: "test_key".to_string(),
             model: "test_model".to_string(),
+            vision_model: "test_vision_model".to_string(),
+            text_model: "test_text_model".to_string(),
             base_url: Some("https://test.openrouter.ai".to_string()),
             max_tokens: Some(150),
         }

@@ -11,8 +11,9 @@ mod mastodon;
 mod media;
 mod openrouter;
 mod toot_handler;
+mod whisper;
 
-use crate::config::Config;
+use crate::config::{Config, RuntimeConfig};
 use crate::error::{AlternatorError, ErrorRecovery};
 use crate::toot_handler::TootStreamHandler;
 
@@ -32,6 +33,10 @@ struct Cli {
     /// Enable verbose logging (equivalent to --log-level debug)
     #[arg(short, long)]
     verbose: bool,
+
+    /// Download Whisper model and exit (does not start main application)
+    #[arg(long, value_name = "MODEL")]
+    download_whisper_model: Option<String>,
 }
 
 impl Cli {
@@ -45,14 +50,14 @@ impl Cli {
 
 /// Initialize structured logging with proper error handling
 #[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
-fn init_logging(config: &Config, cli: &Cli) -> Result<(), AlternatorError> {
+fn init_logging(config: &RuntimeConfig, cli: &Cli) -> Result<(), AlternatorError> {
     // Determine log level from CLI args, config, or environment
     let log_level = if cli.verbose {
         "debug"
     } else if let Some(ref level) = cli.log_level {
         level.as_str()
     } else {
-        config.logging().level.as_deref().unwrap_or("info")
+        config.config().logging().level.as_deref().unwrap_or("info")
     };
 
     // Validate log level
@@ -149,7 +154,7 @@ async fn main() -> Result<(), AlternatorError> {
     let cli = Cli::parse();
 
     // Load configuration first
-    let config = match Config::load(cli.config_path()) {
+    let base_config = match Config::load(cli.config_path()) {
         Ok(config) => config,
         Err(e) => {
             // Initialize basic logging for configuration errors
@@ -160,10 +165,33 @@ async fn main() -> Result<(), AlternatorError> {
         }
     };
 
+    // Create runtime config with FFmpeg/audio availability check
+    let config = RuntimeConfig::new(base_config);
+
     // Initialize structured logging
     if let Err(e) = init_logging(&config, &cli) {
         eprintln!("Failed to initialize logging: {e}");
         return Err(e);
+    }
+
+    // Handle Whisper model download command
+    if let Some(model_name) = cli.download_whisper_model {
+        info!("Whisper model download requested: {}", model_name);
+        return match crate::whisper::download_whisper_model_cli(
+            model_name,
+            config.config().whisper().clone(),
+        )
+        .await
+        {
+            Ok(()) => {
+                info!("Whisper model download completed successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Whisper model download failed: {}", e);
+                Err(e)
+            }
+        };
     }
 
     info!("Starting Alternator v{}", env!("CARGO_PKG_VERSION"));
@@ -171,20 +199,33 @@ async fn main() -> Result<(), AlternatorError> {
     debug!("Configuration file path: {:?}", cli.config);
     debug!(
         "Log level: {}",
-        config.logging().level.as_deref().unwrap_or("info")
+        config.config().logging().level.as_deref().unwrap_or("info")
     );
 
     // Log configuration summary (without sensitive data)
-    info!("Mastodon instance: {}", config.mastodon.instance_url);
-    info!("OpenRouter model: {}", config.openrouter.model);
+    info!(
+        "Mastodon instance: {}",
+        config.config().mastodon.instance_url
+    );
+    info!("OpenRouter model: {}", config.config().openrouter.model);
     info!(
         "Balance monitoring: {}",
-        if config.balance().enabled.unwrap_or(true) {
+        if config.config().balance().enabled.unwrap_or(true) {
             "enabled"
         } else {
             "disabled"
         }
     );
+
+    // Log audio/FFmpeg status
+    if config.is_audio_enabled() {
+        info!("✓ Audio transcription: enabled (FFmpeg available)");
+    } else if crate::media::is_ffmpeg_available() {
+        info!("Audio transcription: disabled (Whisper disabled in config)");
+    } else {
+        warn!("Audio transcription: disabled (FFmpeg not found in PATH)");
+        info!("To enable audio transcription, install FFmpeg and enable Whisper in config");
+    }
 
     // Initialize and start main application loop
     match run_application(config).await {
@@ -200,34 +241,33 @@ async fn main() -> Result<(), AlternatorError> {
 }
 
 /// Main application orchestration - coordinates all components
-async fn run_application(config: Config) -> Result<(), AlternatorError> {
+async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     info!("Initializing application components");
 
     // Initialize all components
-    let mut mastodon_client = crate::mastodon::MastodonClient::new(config.mastodon.clone());
-    let openrouter_client = crate::openrouter::OpenRouterClient::new(config.openrouter.clone());
+    let mut mastodon_client =
+        crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
+    let openrouter_client =
+        crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone());
     let media_processor =
         crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
-            max_size_mb: config.media().max_size_mb.unwrap_or(10) as f64,
-            max_dimension: config.media().resize_max_dimension.unwrap_or(2048),
+            max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
+            max_dimension: config.config().media().resize_max_dimension.unwrap_or(2048),
             supported_formats: config
+                .config()
                 .media()
                 .supported_formats
                 .as_ref()
-                .unwrap_or(&vec![
-                    "image/jpeg".to_string(),
-                    "image/png".to_string(),
-                    "image/gif".to_string(),
-                    "image/webp".to_string(),
-                ])
-                .iter()
-                .cloned()
-                .collect(),
+                .map(|formats| formats.iter().cloned().collect())
+                .unwrap_or_else(|| {
+                    // Use default supported formats from MediaConfig to avoid hardcoding
+                    crate::media::MediaConfig::default().supported_formats
+                }),
         });
     let language_detector = crate::language::LanguageDetector::new();
     let mut balance_monitor = crate::balance::BalanceMonitor::new(
-        config.balance().clone(),
-        crate::openrouter::OpenRouterClient::new(config.openrouter.clone()),
+        config.config().balance().clone(),
+        crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone()),
     );
 
     // Perform startup validation
@@ -240,7 +280,8 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
     // Start balance monitoring in background if enabled
     let balance_task = if balance_monitor.is_enabled() {
         info!("Starting balance monitoring service");
-        let balance_mastodon_client = crate::mastodon::MastodonClient::new(config.mastodon.clone());
+        let balance_mastodon_client =
+            crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
         Some(tokio::spawn(async move {
             if let Err(e) = balance_monitor.run(&balance_mastodon_client).await {
                 error!("Balance monitoring failed: {}", e);
@@ -258,6 +299,7 @@ async fn run_application(config: Config) -> Result<(), AlternatorError> {
         openrouter_client,
         media_processor,
         language_detector,
+        config,
     );
 
     let processing_task = tokio::spawn(async move { toot_handler.start_processing().await });
@@ -392,6 +434,8 @@ mod tests {
             openrouter: OpenRouterConfig {
                 api_key: "test_key".to_string(),
                 model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                 base_url: Some("https://openrouter.ai/api/v1".to_string()),
                 max_tokens: Some(150),
             },
@@ -400,6 +444,7 @@ mod tests {
             logging: Some(LoggingConfig {
                 level: Some("info".to_string()),
             }),
+            whisper: None,
         }
     }
 

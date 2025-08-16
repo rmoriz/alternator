@@ -2,6 +2,14 @@ use crate::error::LanguageError;
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
+/// Convenient function to detect the language of the given text
+pub fn detect_text_language(text: &str) -> String {
+    let detector = LanguageDetector::new();
+    detector
+        .detect_language(text)
+        .unwrap_or_else(|_| "en".to_string())
+}
+
 /// Language detector with prompt template management
 pub struct LanguageDetector {
     prompt_templates: HashMap<String, String>,

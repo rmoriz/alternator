@@ -74,6 +74,16 @@ pub struct MediaDimensions {
     pub aspect: Option<f64>,
 }
 
+/// Media recreation data for uploading with descriptions
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct MediaRecreation {
+    pub data: Vec<u8>,
+    pub description: String,
+    pub media_type: String,
+    pub filename: String,
+}
+
 /// Mentioned user in a status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mention {
@@ -178,14 +188,15 @@ pub trait MastodonStream {
     ) -> Result<(), MastodonError>;
     async fn create_media_attachment(
         &self,
-        image_data: Vec<u8>,
+        media_data: Vec<u8>,
         description: &str,
         filename: &str,
+        media_type: &str,
     ) -> Result<String, MastodonError>;
     async fn recreate_media_with_descriptions(
         &self,
         toot_id: &str,
-        media_recreations: Vec<(Vec<u8>, String)>,
+        media_recreations: Vec<MediaRecreation>,
         original_media_ids: Vec<String>,
     ) -> Result<(), MastodonError>;
     async fn send_dm(&self, message: &str) -> Result<(), MastodonError>;
@@ -213,10 +224,7 @@ impl MastodonClient {
     /// Resolve the WebSocket streaming URL, following any redirects
     async fn resolve_streaming_url(&self) -> Result<Url, MastodonError> {
         let base_url = self.config.instance_url.trim_end_matches('/');
-        let http_url = format!(
-            "{}/api/v1/streaming?access_token={}&stream=user",
-            base_url, self.config.access_token
-        );
+        let http_url = format!("{base_url}/api/v1/streaming");
 
         // Make a HEAD request to resolve any redirects
         let response = self.http_client.head(&http_url).send().await.map_err(|e| {
@@ -226,10 +234,14 @@ impl MastodonClient {
         let final_url = response.url().to_string();
         debug!("Resolved HTTP URL: {} -> {}", http_url, final_url);
 
-        // Convert the final HTTP URL to WebSocket URL
-        let streaming_url = final_url
-            .replace("https://", "wss://")
-            .replace("http://", "ws://");
+        // Convert the final HTTP URL to WebSocket URL and add authentication
+        let streaming_url = format!(
+            "{}?access_token={}&stream=user",
+            final_url
+                .replace("https://", "wss://")
+                .replace("http://", "ws://"),
+            self.config.access_token
+        );
 
         Url::parse(&streaming_url)
             .map_err(|e| MastodonError::ConnectionFailed(format!("Invalid streaming URL: {e}")))
@@ -459,15 +471,11 @@ impl MastodonClient {
         Ok(())
     }
 
-    /// Delete multiple media attachments (cleanup orphaned media)
+    /// Delete multiple media attachments (used for cleanup)
     async fn delete_multiple_media_attachments(
         &self,
         media_ids: Vec<String>,
     ) -> Result<(), MastodonError> {
-        if media_ids.is_empty() {
-            return Ok(());
-        }
-
         debug!("Deleting {} orphaned media attachments", media_ids.len());
 
         let mut deletion_errors = Vec::new();
@@ -908,24 +916,35 @@ impl MastodonStream for MastodonClient {
     /// Create a new media attachment with description
     async fn create_media_attachment(
         &self,
-        image_data: Vec<u8>,
+        media_data: Vec<u8>,
         description: &str,
         filename: &str,
+        media_type: &str,
     ) -> Result<String, MastodonError> {
         let url = format!(
             "{}/api/v2/media",
             self.config.instance_url.trim_end_matches('/')
         );
 
-        // Create multipart form with image data and description
+        // Validate and sanitize the MIME type
+        let mime_type = Self::validate_and_sanitize_mime_type(media_type, filename)?;
+
+        tracing::debug!(
+            "Creating media attachment with MIME type: '{mime_type}' for file: '{filename}'"
+        );
+
+        // Create multipart form with media data and description
         let form = reqwest::multipart::Form::new()
             .part(
                 "file",
-                reqwest::multipart::Part::bytes(image_data)
+                reqwest::multipart::Part::bytes(media_data)
                     .file_name(filename.to_string())
-                    .mime_str("image/jpeg") // Default to JPEG, could be improved to detect actual type
+                    .mime_str(&mime_type)
                     .map_err(|e| {
-                        MastodonError::ApiRequestFailed(format!("Failed to set MIME type: {e}"))
+                        tracing::error!("Failed to set MIME type '{mime_type}': {e}");
+                        MastodonError::ApiRequestFailed(format!(
+                            "Failed to set MIME type '{mime_type}': {e}"
+                        ))
                     })?,
             )
             .text("description", description.to_string());
@@ -969,7 +988,7 @@ impl MastodonStream for MastodonClient {
     async fn recreate_media_with_descriptions(
         &self,
         toot_id: &str,
-        media_recreations: Vec<(Vec<u8>, String)>,
+        media_recreations: Vec<MediaRecreation>,
         original_media_ids: Vec<String>,
     ) -> Result<(), MastodonError> {
         if media_recreations.is_empty() {
@@ -985,10 +1004,14 @@ impl MastodonStream for MastodonClient {
 
         // Step 1: Create new media attachments with descriptions
         let mut new_media_ids = Vec::new();
-        for (index, (image_data, description)) in media_recreations.iter().enumerate() {
-            let filename = format!("media_{index}.jpg");
+        for (index, recreation) in media_recreations.iter().enumerate() {
             match self
-                .create_media_attachment(image_data.clone(), description, &filename)
+                .create_media_attachment(
+                    recreation.data.clone(),
+                    &recreation.description,
+                    &recreation.filename,
+                    &recreation.media_type,
+                )
                 .await
             {
                 Ok(new_media_id) => {
@@ -1016,6 +1039,101 @@ impl MastodonStream for MastodonClient {
             }
         }
 
+        // Step 2: Wait for media processing and update the status with retry logic
+        self.update_status_with_media_retry(toot_id, new_media_ids, media_recreations.len())
+            .await?;
+
+        // Schedule non-blocking cleanup of orphaned original media attachments
+        if !original_media_ids.is_empty() {
+            debug!(
+                "Scheduling delayed cleanup of {} original media attachments",
+                original_media_ids.len()
+            );
+            self.spawn_cleanup_task(original_media_ids);
+        }
+
+        Ok(())
+    }
+}
+
+impl MastodonClient {
+    /// Update status with new media IDs, handling Mastodon processing delays with retries
+    async fn update_status_with_media_retry(
+        &self,
+        toot_id: &str,
+        new_media_ids: Vec<String>,
+        media_count: usize,
+    ) -> Result<(), MastodonError> {
+        const MAX_RETRIES: u32 = 4;
+        // Initial wait + retry delays: 2s, 5s, 10s, 20s
+        const RETRY_DELAYS: [u64; 4] = [2, 5, 10, 20];
+
+        let mut retry_count = 0;
+
+        // Initial delay to let Mastodon process the uploaded media
+        debug!(
+            "Waiting 2 seconds for Mastodon to process {} media attachments",
+            media_count
+        );
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        loop {
+            match self.update_status_with_media(toot_id, &new_media_ids).await {
+                Ok(()) => {
+                    info!(
+                        "Successfully recreated {} media attachments for toot: {}",
+                        media_count, toot_id
+                    );
+                    return Ok(());
+                }
+                Err(MastodonError::ApiRequestFailed(ref error_text))
+                    if retry_count < MAX_RETRIES
+                        && (error_text.contains("422")
+                            && (error_text.contains("nicht verarbeitet wurden")  // German
+                            || error_text.contains("not yet been processed")  // English
+                            || error_text.contains("cannot be attached"))) =>
+                {
+                    let delay = RETRY_DELAYS[retry_count as usize];
+                    retry_count += 1;
+
+                    warn!(
+                        "Media attachments not yet processed by Mastodon (attempt {}), retrying in {} seconds: {}",
+                        retry_count, delay, error_text
+                    );
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to update status with new media after {} attempts: {}",
+                        retry_count + 1,
+                        e
+                    );
+
+                    // Clean up the media we created since we couldn't attach them
+                    if !new_media_ids.is_empty() {
+                        if let Err(cleanup_error) =
+                            self.delete_multiple_media_attachments(new_media_ids).await
+                        {
+                            warn!(
+                                "Failed to clean up media after status update failure: {}",
+                                cleanup_error
+                            );
+                        }
+                    }
+
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Update status with new media attachments (single attempt)
+    async fn update_status_with_media(
+        &self,
+        toot_id: &str,
+        new_media_ids: &[String],
+    ) -> Result<(), MastodonError> {
         // Step 2: Update the status to use the new media attachments
         let url = format!(
             "{}/api/v1/statuses/{}",
@@ -1085,25 +1203,9 @@ impl MastodonStream for MastodonClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            error!("Failed to update status with new media: HTTP {status}: {error_text}");
             return Err(MastodonError::ApiRequestFailed(format!(
                 "Status update failed with status {status}: {error_text}"
             )));
-        }
-
-        info!(
-            "Successfully recreated {} media attachments for toot: {}",
-            new_media_ids.len(),
-            toot_id
-        );
-
-        // Schedule non-blocking cleanup of orphaned original media attachments
-        if !original_media_ids.is_empty() {
-            debug!(
-                "Scheduling delayed cleanup of {} original media attachments",
-                original_media_ids.len()
-            );
-            self.spawn_cleanup_task(original_media_ids);
         }
 
         Ok(())
@@ -1111,6 +1213,127 @@ impl MastodonStream for MastodonClient {
 }
 
 impl MastodonClient {
+    /// Determine MIME type from media type and filename
+    #[allow(dead_code)]
+    fn determine_mime_type(media_type: &str, filename: &str) -> String {
+        // Try to match based on the Mastodon media_type first
+        match media_type {
+            // Audio types
+            "audio/mpeg" | "audio/mp3" => "audio/mpeg".to_string(),
+            "audio/wav" | "audio/wave" | "audio/x-wav" => "audio/wav".to_string(),
+            "audio/m4a" => "audio/mp4".to_string(),
+            "audio/mp4" => "audio/mp4".to_string(),
+            "audio/aac" => "audio/aac".to_string(),
+            "audio/ogg" => "audio/ogg".to_string(),
+            "audio/flac" | "audio/x-flac" => "audio/flac".to_string(),
+            // Generic audio fallback
+            "audio" => {
+                // Try to determine from filename extension
+                let extension = filename.split('.').next_back().unwrap_or("").to_lowercase();
+                match extension.as_str() {
+                    "mp3" => "audio/mpeg",
+                    "wav" => "audio/wav",
+                    "m4a" => "audio/mp4",
+                    "mp4" => "audio/mp4",
+                    "aac" => "audio/aac",
+                    "ogg" => "audio/ogg",
+                    "flac" => "audio/flac",
+                    _ => "audio/mpeg", // Default to MP3
+                }
+                .to_string()
+            }
+            // Image types (existing logic)
+            "image/jpeg" | "image/jpg" => "image/jpeg".to_string(),
+            "image/png" => "image/png".to_string(),
+            "image/gif" => "image/gif".to_string(),
+            "image/webp" => "image/webp".to_string(),
+            // Generic image fallback
+            "image" => {
+                // Try to determine from filename extension
+                let extension = filename.split('.').next_back().unwrap_or("").to_lowercase();
+                match extension.as_str() {
+                    "jpg" | "jpeg" => "image/jpeg",
+                    "png" => "image/png",
+                    "gif" => "image/gif",
+                    "webp" => "image/webp",
+                    _ => "image/jpeg", // Default to JPEG
+                }
+                .to_string()
+            }
+            // Video types (future support)
+            "video/mp4" => "video/mp4".to_string(),
+            "video/webm" => "video/webm".to_string(),
+            "video" => "video/mp4".to_string(), // Default to MP4
+            // Fallback for unknown types
+            _ => {
+                // Try to determine from filename extension as last resort
+                let extension = filename.split('.').next_back().unwrap_or("").to_lowercase();
+                match extension.as_str() {
+                    // Audio extensions
+                    "mp3" => "audio/mpeg",
+                    "wav" => "audio/wav",
+                    "m4a" | "mp4" => "audio/mp4", // Note: mp4 could be video or audio
+                    "aac" => "audio/aac",
+                    "ogg" => "audio/ogg",
+                    "flac" => "audio/flac",
+                    // Image extensions
+                    "jpg" | "jpeg" => "image/jpeg",
+                    "png" => "image/png",
+                    "gif" => "image/gif",
+                    "webp" => "image/webp",
+                    // Video extensions
+                    "webm" => "video/webm",
+                    // Default fallback
+                    _ => "application/octet-stream",
+                }
+                .to_string()
+            }
+        }
+    }
+
+    /// Validate and sanitize MIME type, with fallback for invalid types
+    fn validate_and_sanitize_mime_type(
+        media_type: &str,
+        filename: &str,
+    ) -> Result<String, MastodonError> {
+        // Check for empty or whitespace-only MIME type
+        let trimmed_type = media_type.trim();
+        if trimmed_type.is_empty() {
+            tracing::warn!(
+                "Empty MIME type provided, falling back to filename detection for: {filename}"
+            );
+            return Ok(Self::determine_mime_type("", filename));
+        }
+
+        // Check for basic MIME type format (type/subtype)
+        if !trimmed_type.contains('/') {
+            // This is a common case for Mastodon media types like "audio", "image", "video"
+            if matches!(trimmed_type, "audio" | "image" | "video") {
+                tracing::debug!("Generic media type '{trimmed_type}' detected, using filename detection for: {filename}");
+            } else {
+                tracing::warn!("Invalid MIME type format '{trimmed_type}', falling back to filename detection for: {filename}");
+            }
+            return Ok(Self::determine_mime_type(trimmed_type, filename));
+        }
+
+        // Check for invalid characters that could cause reqwest to fail
+        if trimmed_type.contains('\n') || trimmed_type.contains('\r') || trimmed_type.contains('\0')
+        {
+            tracing::warn!("MIME type contains invalid characters '{trimmed_type}', falling back to filename detection for: {filename}");
+            return Ok(Self::determine_mime_type("", filename));
+        }
+
+        // Validate basic MIME type structure
+        let parts: Vec<&str> = trimmed_type.split('/').collect();
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+            tracing::warn!("Malformed MIME type '{trimmed_type}', falling back to filename detection for: {filename}");
+            return Ok(Self::determine_mime_type("", filename));
+        }
+
+        // MIME type appears valid, return it
+        Ok(trimmed_type.to_string())
+    }
+
     /// Extract plain text from HTML content
     #[allow(dead_code)] // Used in tests and integration tests
     pub fn extract_text_from_html(html: &str) -> String {
@@ -2144,5 +2367,74 @@ mod tests {
         let deserialized: TootEvent = serde_json::from_str(&json).unwrap();
         assert!(deserialized.language.is_none());
         assert!(deserialized.url.is_none());
+    }
+
+    #[test]
+    fn test_determine_mime_type() {
+        // Test audio types
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio/mpeg", "test.mp3"),
+            "audio/mpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio/wav", "test.wav"),
+            "audio/wav"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio/m4a", "test.m4a"),
+            "audio/mp4"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio/flac", "test.flac"),
+            "audio/flac"
+        );
+
+        // Test generic audio with filename fallback
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio", "test.mp3"),
+            "audio/mpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio", "test.wav"),
+            "audio/wav"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("audio", "test.unknown"),
+            "audio/mpeg" // Default fallback
+        );
+
+        // Test image types
+        assert_eq!(
+            MastodonClient::determine_mime_type("image/jpeg", "test.jpg"),
+            "image/jpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("image/png", "test.png"),
+            "image/png"
+        );
+
+        // Test generic image with filename fallback
+        assert_eq!(
+            MastodonClient::determine_mime_type("image", "test.jpg"),
+            "image/jpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("image", "test.png"),
+            "image/png"
+        );
+
+        // Test unknown type with filename fallback
+        assert_eq!(
+            MastodonClient::determine_mime_type("unknown", "test.mp3"),
+            "audio/mpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("unknown", "test.jpg"),
+            "image/jpeg"
+        );
+        assert_eq!(
+            MastodonClient::determine_mime_type("unknown", "test.unknown"),
+            "application/octet-stream" // Ultimate fallback
+        );
     }
 }

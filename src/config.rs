@@ -3,6 +3,18 @@ use std::env;
 use std::path::PathBuf;
 use thiserror::Error;
 
+fn default_openrouter_model() -> String {
+    "mistralai/mistral-small-3.2-24b-instruct:free".to_string()
+}
+
+fn default_openrouter_vision_model() -> String {
+    "mistralai/mistral-small-3.2-24b-instruct:free".to_string()
+}
+
+fn default_openrouter_text_model() -> String {
+    "mistralai/mistral-small-3.2-24b-instruct:free".to_string()
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("IO error: {0}")]
@@ -22,19 +34,58 @@ pub struct Config {
     pub media: Option<MediaConfig>,
     pub balance: Option<BalanceConfig>,
     pub logging: Option<LoggingConfig>,
+    pub whisper: Option<WhisperConfig>,
+}
+
+/// Runtime configuration that includes dynamically-determined settings
+#[derive(Debug, Clone)]
+pub struct RuntimeConfig {
+    pub config: Config,
+    pub audio_enabled: bool,
+}
+
+impl RuntimeConfig {
+    /// Create a runtime config with audio enabled status determined by FFmpeg availability
+    pub fn new(config: Config) -> Self {
+        let audio_enabled =
+            crate::media::is_ffmpeg_available() && config.whisper().enabled.unwrap_or(false);
+
+        Self {
+            config,
+            audio_enabled,
+        }
+    }
+
+    /// Get the underlying config
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Check if audio processing is enabled
+    pub fn is_audio_enabled(&self) -> bool {
+        self.audio_enabled
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MastodonConfig {
+    #[serde(default)]
     pub instance_url: String,
+    #[serde(default)]
     pub access_token: String,
     pub user_stream: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenRouterConfig {
+    #[serde(default)]
     pub api_key: String,
+    #[serde(default = "default_openrouter_model")]
     pub model: String,
+    #[serde(default = "default_openrouter_vision_model")]
+    pub vision_model: String,
+    #[serde(default = "default_openrouter_text_model")]
+    pub text_model: String,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
 }
@@ -58,15 +109,47 @@ pub struct LoggingConfig {
     pub level: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhisperConfig {
+    pub model: Option<String>,
+    pub model_dir: Option<String>,
+    pub enabled: Option<bool>,
+    pub language: Option<String>,
+    pub max_duration_minutes: Option<u32>,
+}
+
 impl Default for MediaConfig {
     fn default() -> Self {
         Self {
             max_size_mb: Some(10),
             supported_formats: Some(vec![
+                // Image formats
                 "image/jpeg".to_string(),
                 "image/png".to_string(),
                 "image/gif".to_string(),
                 "image/webp".to_string(),
+                // Audio formats
+                "audio/mpeg".to_string(),
+                "audio/mp3".to_string(),
+                "audio/wav".to_string(),
+                "audio/wave".to_string(),
+                "audio/x-wav".to_string(),
+                "audio/mp4".to_string(),
+                "audio/m4a".to_string(),
+                "audio/aac".to_string(),
+                "audio/ogg".to_string(),
+                "audio/webm".to_string(),
+                "audio/flac".to_string(),
+                // Video formats
+                "video/mp4".to_string(),
+                "video/mpeg".to_string(),
+                "video/quicktime".to_string(),
+                "video/x-msvideo".to_string(),
+                "video/webm".to_string(),
+                "video/x-ms-wmv".to_string(),
+                "video/x-flv".to_string(),
+                "video/3gpp".to_string(),
+                "video/x-matroska".to_string(),
             ]),
             resize_max_dimension: Some(2048),
         }
@@ -91,6 +174,18 @@ impl Default for LoggingConfig {
     }
 }
 
+impl Default for WhisperConfig {
+    fn default() -> Self {
+        Self {
+            model: Some("base".to_string()),
+            model_dir: None,                // Will use default model directory
+            enabled: Some(false),           // Disabled by default until user explicitly enables
+            language: None,                 // Auto-detect
+            max_duration_minutes: Some(10), // Skip files longer than 10 minutes
+        }
+    }
+}
+
 impl Config {
     /// Load configuration from TOML file with XDG directory support and environment variable overrides
     pub fn load(config_path: Option<PathBuf>) -> Result<Self, ConfigError> {
@@ -101,9 +196,11 @@ impl Config {
         };
 
         let mut config = if config_file.exists() {
+            tracing::debug!("Loading config from: {}", config_file.display());
             let content = std::fs::read_to_string(&config_file)?;
             toml::from_str::<Config>(&content)?
         } else {
+            tracing::debug!("No config file found, using environment variables only");
             // Create a minimal config structure that will be populated by env vars
             Config {
                 mastodon: MastodonConfig {
@@ -113,13 +210,16 @@ impl Config {
                 },
                 openrouter: OpenRouterConfig {
                     api_key: String::new(),
-                    model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                    model: default_openrouter_model(),
+                    vision_model: default_openrouter_vision_model(),
+                    text_model: default_openrouter_text_model(),
                     base_url: None,
                     max_tokens: Some(1500),
                 },
                 media: None,
                 balance: None,
                 logging: None,
+                whisper: None,
             }
         };
 
@@ -136,6 +236,9 @@ impl Config {
         if config.logging.is_none() {
             config.logging = Some(LoggingConfig::default());
         }
+        if config.whisper.is_none() {
+            config.whisper = Some(WhisperConfig::default());
+        }
 
         // Validate required fields
         config.validate()?;
@@ -151,14 +254,25 @@ impl Config {
             return Ok(current_dir_config);
         }
 
-        // Then check XDG_CONFIG_HOME/alternator/alternator.toml
-        if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
-            let xdg_config = PathBuf::from(xdg_config_home)
+        // Then check XDG_CONFIG_HOME/alternator/alternator.toml or ~/.config/alternator/alternator.toml
+        let xdg_config = if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
+            PathBuf::from(xdg_config_home)
                 .join("alternator")
-                .join("alternator.toml");
-            if xdg_config.exists() {
-                return Ok(xdg_config);
+                .join("alternator.toml")
+        } else {
+            // Fallback to ~/.config when XDG_CONFIG_HOME is not set
+            if let Ok(home_dir) = env::var("HOME") {
+                PathBuf::from(home_dir)
+                    .join(".config")
+                    .join("alternator")
+                    .join("alternator.toml")
+            } else {
+                PathBuf::new() // Invalid path that won't exist
             }
+        };
+
+        if xdg_config.exists() {
+            return Ok(xdg_config);
         }
 
         // Default to current directory (file may not exist yet)
@@ -188,6 +302,12 @@ impl Config {
         }
         if let Ok(model) = env::var("ALTERNATOR_OPENROUTER_MODEL") {
             self.openrouter.model = model;
+        }
+        if let Ok(vision_model) = env::var("ALTERNATOR_OPENROUTER_VISION_MODEL") {
+            self.openrouter.vision_model = vision_model;
+        }
+        if let Ok(text_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_MODEL") {
+            self.openrouter.text_model = text_model;
         }
         if let Ok(base_url) = env::var("ALTERNATOR_OPENROUTER_BASE_URL") {
             self.openrouter.base_url = Some(base_url);
@@ -228,6 +348,36 @@ impl Config {
             logging.level = Some(level);
         }
 
+        // Whisper configuration
+        if let Ok(model) = env::var("ALTERNATOR_WHISPER_MODEL") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.model = Some(model);
+        }
+        if let Ok(model_dir) = env::var("ALTERNATOR_WHISPER_MODEL_DIR") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.model_dir = Some(model_dir);
+        }
+        if let Ok(enabled) = env::var("ALTERNATOR_WHISPER_ENABLED") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.enabled = Some(enabled.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_WHISPER_ENABLED must be true or false".to_string(),
+                )
+            })?);
+        }
+        if let Ok(language) = env::var("ALTERNATOR_WHISPER_LANGUAGE") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.language = Some(language);
+        }
+        if let Ok(max_duration) = env::var("ALTERNATOR_WHISPER_MAX_DURATION_MINUTES") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.max_duration_minutes = Some(max_duration.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_WHISPER_MAX_DURATION_MINUTES must be a valid number".to_string(),
+                )
+            })?);
+        }
+
         Ok(())
     }
 
@@ -254,6 +404,18 @@ impl Config {
         if self.openrouter.model.is_empty() {
             return Err(ConfigError::MissingRequired(
                 "openrouter.model or ALTERNATOR_OPENROUTER_MODEL".to_string(),
+            ));
+        }
+
+        if self.openrouter.vision_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.vision_model or ALTERNATOR_OPENROUTER_VISION_MODEL".to_string(),
+            ));
+        }
+
+        if self.openrouter.text_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.text_model or ALTERNATOR_OPENROUTER_TEXT_MODEL".to_string(),
             ));
         }
 
@@ -294,6 +456,22 @@ impl Config {
     pub fn logging(&self) -> &LoggingConfig {
         self.logging.as_ref().unwrap()
     }
+
+    /// Get the whisper configuration with defaults
+    pub fn whisper(&self) -> &WhisperConfig {
+        self.whisper.as_ref().unwrap()
+    }
+
+    /// Get the model to use for vision tasks (image description)
+    #[allow(dead_code)]
+    pub fn vision_model(&self) -> &str {
+        &self.openrouter.vision_model
+    }
+
+    #[allow(dead_code)]
+    pub fn text_model(&self) -> &str {
+        &self.openrouter.text_model
+    }
 }
 
 #[cfg(test)]
@@ -311,6 +489,27 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains(&"image/jpeg".to_string()));
+        assert!(media
+            .supported_formats
+            .as_ref()
+            .unwrap()
+            .contains(&"audio/mp3".to_string()));
+        // Test that video formats are included in the default config
+        assert!(media
+            .supported_formats
+            .as_ref()
+            .unwrap()
+            .contains(&"video/mp4".to_string()));
+        assert!(media
+            .supported_formats
+            .as_ref()
+            .unwrap()
+            .contains(&"video/webm".to_string()));
+        assert!(media
+            .supported_formats
+            .as_ref()
+            .unwrap()
+            .contains(&"video/quicktime".to_string()));
 
         let balance = BalanceConfig::default();
         assert_eq!(balance.enabled, Some(true));
@@ -319,6 +518,11 @@ mod tests {
 
         let logging = LoggingConfig::default();
         assert_eq!(logging.level, Some("info".to_string()));
+
+        let whisper = WhisperConfig::default();
+        assert_eq!(whisper.model, Some("base".to_string()));
+        assert_eq!(whisper.enabled, Some(false));
+        assert_eq!(whisper.max_duration_minutes, Some(10));
     }
 
     #[test]
@@ -332,12 +536,15 @@ mod tests {
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
+                vision_model: "vision-model".to_string(),
+                text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
             media: None,
             balance: None,
             logging: None,
+            whisper: None,
         };
 
         let result = config.validate();
@@ -359,6 +566,8 @@ mod tests {
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
+                vision_model: "vision-model".to_string(),
+                text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -369,6 +578,7 @@ mod tests {
                 check_time: Some("invalid".to_string()),
             }),
             logging: None,
+            whisper: None,
         };
 
         let result = config.validate();
@@ -396,12 +606,15 @@ mod tests {
             openrouter: OpenRouterConfig {
                 api_key: String::new(),
                 model: String::new(),
+                vision_model: String::new(),
+                text_model: String::new(),
                 base_url: None,
                 max_tokens: None,
             },
             media: None,
             balance: None,
             logging: None,
+            whisper: None,
         };
 
         config.apply_env_overrides().unwrap();
@@ -489,12 +702,15 @@ level = "info"
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
+                vision_model: "vision-model".to_string(),
+                text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
             media: None,
             balance: None,
             logging: None,
+            whisper: None,
         };
 
         assert_eq!(config.openrouter_base_url(), "https://openrouter.ai/api/v1");
