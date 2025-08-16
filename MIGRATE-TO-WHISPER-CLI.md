@@ -158,10 +158,6 @@ impl WhisperCli {
         let model = self.model.clone();
         let device = self.device.clone();
         
-        // Create a dummy audio file for model preloading
-        let temp_audio = self.temp_dir.join("preload_test.wav");
-        Self::create_dummy_audio(&temp_audio).await?;
-        
         let preload_result = tokio::task::spawn_blocking(move || -> Result<(), MediaError> {
             let mut cmd = Command::new(&python_executable);
             cmd.arg("-c")
@@ -171,28 +167,31 @@ import whisper
 import torch
 import os
 
-# Set device
+# Set device and environment
 device = "{device}" if "{device}" != "cpu" and torch.cuda.is_available() else "cpu"
 if device != "cpu":
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-print(f"Loading Whisper model '{model}' on device: {{device}}")
+print(f"Preloading Whisper model '{model}' on device: {{device}}")
 
-# Load and cache the model
+# Direct model loading (no dummy audio needed)
 model = whisper.load_model("{model}", device=device)
+print(f"✓ Model loaded on device: {{model.device}}")
 
-# Run a small test to ensure model is fully loaded
-audio = whisper.load_audio("{temp_audio}")
-audio = whisper.pad_or_trim(audio)
-mel = whisper.log_mel_spectrogram(audio, n_mels=model.dims.n_mels).to(model.device)
+# Optional: Warm up GPU context with minimal computation
+if model.device.type == "cuda":
+    import torch
+    # Create minimal mel spectrogram tensor for GPU warmup
+    dummy_mel = torch.randn(1, model.dims.n_mels, 300, device=model.device)
+    with torch.no_grad():
+        # Quick encoder pass to initialize GPU kernels
+        _ = model.encoder(dummy_mel)
+    print("✓ GPU context warmed up")
 
-# Quick language detection to warm up the model
-_, probs = model.detect_language(mel)
-print(f"Model preloaded successfully. Device: {{model.device}}")
+print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
 "#,
                    device = device,
                    model = model,
-                   temp_audio = temp_audio.display()
                ));
             
             let output = cmd.output().map_err(|e| {
@@ -210,35 +209,8 @@ print(f"Model preloaded successfully. Device: {{model.device}}")
             Ok(())
         }).await.map_err(|e| MediaError::ProcessingFailed(format!("Model preloading task failed: {}", e)))??;
         
-        // Clean up dummy audio file
-        let _ = tokio::fs::remove_file(&temp_audio).await;
-        
         self.model_preloaded.store(true, Ordering::Relaxed);
         tracing::info!("✓ Whisper model '{}' preloaded successfully", self.model);
-        
-        Ok(())
-    }
-
-    /// Create a minimal dummy audio file for model preloading
-    async fn create_dummy_audio(path: &Path) -> Result<(), MediaError> {
-        // Create 1 second of silence as WAV file
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-f").arg("lavfi")
-           .arg("-i").arg("anullsrc=channel_layout=mono:sample_rate=16000")
-           .arg("-t").arg("1")
-           .arg("-y")  // Overwrite output file
-           .arg(path);
-        
-        let output = tokio::task::spawn_blocking(move || cmd.output()).await
-            .map_err(|e| MediaError::ProcessingFailed(format!("Failed to create dummy audio: {}", e)))?
-            .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg failed to create dummy audio: {}", e)))?;
-        
-        if !output.status.success() {
-            return Err(MediaError::ProcessingFailed(format!(
-                "Failed to create dummy audio file: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
         
         Ok(())
     }
