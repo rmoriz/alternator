@@ -87,14 +87,18 @@ pip install openai-whisper
 2. **Configuration Changes**
    ```toml
    [whisper]
-   # Remove model_dir (no longer needed)
-   # model = "base"  # Remove - will be specified in CLI
-   language = "auto"  # Keep language configuration
-   enabled = true
+   # Keep existing model_dir configuration (compatible with current implementation)
+   model_dir = "/data/whisper_models"  # Keep: Custom model storage location  
+   model = "medium"  # Keep: Whisper model selection
+   language = "auto"  # Keep: Language configuration
+   enabled = true    # Keep: Enable/disable Whisper
+   max_duration_minutes = 10  # Keep: Duration limits
+   
+   # New optional settings for CLI migration
    python_executable = "/usr/bin/python3"  # New: Python path
-   model = "medium"  # New: Whisper model selection
    device = "auto"    # New: auto, cpu, cuda (works for both AMD/NVIDIA)
    backend = "auto"   # New: auto, cuda, rocm, cpu (optional override)
+   preload = true     # New: preload model at startup (default: true)
    ```
 
 ### Phase 2: Core Implementation Changes
@@ -106,6 +110,7 @@ pub struct WhisperCli {
     model: String,
     device: String,
     temp_dir: PathBuf,
+    model_dir: Option<PathBuf>,  // Keep compatibility with existing model_dir
     model_preloaded: Arc<AtomicBool>,
 }
 
@@ -113,9 +118,10 @@ impl WhisperCli {
     pub fn new(config: WhisperConfig) -> Result<Self, MediaError> {
         Ok(Self {
             python_executable: config.python_executable.unwrap_or("python3".to_string()),
-            model: config.model,
+            model: config.model.unwrap_or("medium".to_string()),
             device: Self::detect_optimal_device(),
             temp_dir: Self::get_temp_dir()?,
+            model_dir: config.model_dir.map(PathBuf::from),  // Use existing model_dir
             model_preloaded: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -157,6 +163,7 @@ impl WhisperCli {
         let python_executable = self.python_executable.clone();
         let model = self.model.clone();
         let device = self.device.clone();
+        let model_dir = self.model_dir.clone();
         
         let preload_result = tokio::task::spawn_blocking(move || -> Result<(), MediaError> {
             let mut cmd = Command::new(&python_executable);
@@ -173,9 +180,10 @@ if device != "cpu":
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 print(f"Preloading Whisper model '{model}' on device: {{device}}")
+{model_dir_info}
 
-# Direct model loading (no dummy audio needed)
-model = whisper.load_model("{model}", device=device)
+# Direct model loading with custom model_dir if specified
+{model_load_call}
 print(f"✓ Model loaded on device: {{model.device}}")
 
 # Optional: Warm up GPU context with minimal computation
@@ -192,6 +200,16 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
 "#,
                    device = device,
                    model = model,
+                   model_dir_info = if let Some(ref dir) = model_dir {
+                       format!("print(f\"Using custom model directory: {}\")", dir.display())
+                   } else {
+                       "print(\"Using default model directory: ~/.cache/whisper/\")".to_string()
+                   },
+                   model_load_call = if let Some(ref dir) = model_dir {
+                       format!("model = whisper.load_model(\"{}\", device=device, download_root=\"{}\")", model, dir.display())
+                   } else {
+                       format!("model = whisper.load_model(\"{}\", device=device)", model)
+                   }
                ));
             
             let output = cmd.output().map_err(|e| {
@@ -240,6 +258,11 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
            .arg("--output_dir")
            .arg(&output_dir);
            
+        // Use existing model_dir configuration with Whisper CLI's --model_dir option
+        if let Some(ref model_dir) = self.model_dir {
+            cmd.arg("--model_dir").arg(model_dir);
+        }
+           
         if let Some(lang) = language {
             if lang != "auto" && !lang.is_empty() {
                 cmd.arg("--language").arg(lang);
@@ -285,15 +308,43 @@ let transcript = if let Some(whisper_cli) = &whisper_cli {
 
 ### Phase 3: Model Management
 
-#### Remove Current Model Downloads
-- Delete `src/whisper.rs` model downloading logic
-- Remove HuggingFace model dependencies
-- Whisper models will be downloaded automatically by the CLI
+#### Model Storage Control (Maintaining Compatibility)
+- **Default Location**: `~/.cache/whisper/` (Linux/macOS), `%USERPROFILE%\.cache\whisper\` (Windows)
+- **Custom Location**: Use existing `model_dir` configuration field
+- **Whisper CLI Integration**: Pass `model_dir` via `--model_dir` CLI option
+- **Model Files**: Stored as `medium.pt`, `large-v3.pt`, `turbo.pt`, etc.
 
-#### Model Storage
-- Models stored in default Whisper cache: `~/.cache/whisper/`
-- No manual model management required
-- Automatic model downloading on first use
+#### Model Download Strategy
+- **Automatic**: Models downloaded on first use if not cached
+- **Preloading**: Models can be preloaded at application startup
+- **Persistent**: Models cached locally, no re-download needed
+- **Docker Volumes**: Mount custom model_dir for persistence
+
+#### Configuration Migration (Backward Compatible)
+```toml
+# Existing configuration (no changes required)
+[whisper]
+enabled = true
+model = "medium"
+model_dir = "/data/whisper_models"  # Keep existing setting
+language = "auto"
+max_duration_minutes = 10
+
+# Optional new settings for enhanced functionality
+# python_executable = "python3"  # Auto-detected if not specified
+# device = "auto"                 # Auto-detected if not specified
+# preload = true                  # Default: true
+```
+
+#### Docker Integration Examples
+```bash
+# Using existing model_dir configuration
+docker run -v /host/whisper_models:/data/whisper_models alternator
+
+# Configuration file:
+# [whisper]
+# model_dir = "/data/whisper_models"
+```
 
 ### Phase 4: Configuration Migration
 
@@ -301,9 +352,12 @@ let transcript = if let Some(whisper_cli) = &whisper_cli {
 ```rust
 #[derive(Debug, Clone, Deserialize)]
 pub struct WhisperConfig {
-    pub enabled: bool,
-    pub model: String,  // tiny, base, small, medium, large, turbo
+    pub enabled: Option<bool>,
+    pub model: Option<String>,  // tiny, base, small, medium, large, turbo
+    pub model_dir: Option<String>,  // Keep existing: custom model storage directory
     pub language: Option<String>,
+    pub max_duration_minutes: Option<u32>,  // Keep existing: duration limits
+    // New optional fields for CLI migration
     pub python_executable: Option<String>,
     pub device: Option<String>,  // auto, cpu, cuda (works for both AMD/NVIDIA)
     pub backend: Option<String>, // auto, cuda, rocm, cpu (optional override)
@@ -313,9 +367,11 @@ pub struct WhisperConfig {
 impl Default for WhisperConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            model: "medium".to_string(),
+            enabled: Some(false),
+            model: Some("medium".to_string()),
+            model_dir: None, // Use default ~/.cache/whisper/ if not specified
             language: Some("auto".to_string()),
+            max_duration_minutes: Some(10),
             python_executable: Some("python3".to_string()),
             device: Some("auto".to_string()),
             backend: Some("auto".to_string()),
