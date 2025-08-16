@@ -112,7 +112,7 @@ pub async fn process_video_for_transcript(
     }
 
     // Also check against default media config size limit
-    let max_size_mb = 50.0; // Higher limit for video files
+    let max_size_mb = 250.0; // Higher limit for video files
     if size_mb > max_size_mb {
         return Err(MediaError::ProcessingFailed(format!(
             "Video size {size_mb:.2}MB exceeds limit of {max_size_mb:.2}MB"

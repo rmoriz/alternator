@@ -115,7 +115,7 @@ pub async fn process_audio_for_transcript(
     }
 
     // Also check against default media config size limit
-    let max_size_mb = 10.0; // Default media config max size
+    let max_size_mb = 50.0; // Default media config max size
     if size_mb > max_size_mb {
         return Err(MediaError::ProcessingFailed(format!(
             "Audio size {size_mb:.2}MB exceeds limit of {max_size_mb:.2}MB"
