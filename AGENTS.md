@@ -25,7 +25,7 @@
 - Main modules: `mastodon`, `openrouter`, `media`, `language`, `balance`, `toot_handler`
 
 ## Git Workflow
-- **MANDATORY**: Before ANY commit: ALL tests must pass, ALL cargo fmt --check must pass, ALL lint must pass, ALL typecheck must pass. NO EXCEPTIONS.
+- **MANDATORY**: Before ANY commit: ALL tests must pass, ALL Format checks must pass, ALL lint must pass. NO EXCEPTIONS.
 - **CRITICAL**: Every change MUST be committed to git with a descriptive commit message
 - **CRITICAL**: Every change MUST be pushed to GitHub after committing
 - **CRITICAL**: All changes MUST be tested and committed to git before the task is done. MUST. Mandatory.

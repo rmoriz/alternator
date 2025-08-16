@@ -11,7 +11,11 @@ use alternator::error::AlternatorError;
 use alternator::mastodon::{Account, MediaAttachment, TootEvent};
 use alternator::toot_handler::TootStreamHandler;
 use chrono::{Timelike, Utc};
+use std::sync::Mutex;
 use tokio::time::{timeout, Duration};
+
+// Global mutex to ensure environment variable tests run sequentially
+static ENV_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 /// Create a test runtime config for integration tests
 fn create_test_runtime_config() -> RuntimeConfig {
@@ -65,12 +69,16 @@ fn create_test_config() -> Config {
 
 #[tokio::test]
 async fn test_config_loading_from_file() {
+    let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
     // Clean up any existing environment variables first
     let env_vars_to_clean = [
         "ALTERNATOR_MASTODON_INSTANCE_URL",
         "ALTERNATOR_MASTODON_ACCESS_TOKEN",
         "ALTERNATOR_OPENROUTER_API_KEY",
         "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_VISION_MODEL",
+        "ALTERNATOR_OPENROUTER_TEXT_MODEL",
         "ALTERNATOR_OPENROUTER_MAX_TOKENS",
         "ALTERNATOR_BALANCE_ENABLED",
         "ALTERNATOR_BALANCE_THRESHOLD",
@@ -96,6 +104,8 @@ user_stream = true
 [openrouter]
 api_key = "test_openrouter_key"
 model = "test-model"
+vision_model = "test-vision-model"
+text_model = "test-text-model"
 base_url = "https://test.openrouter.ai/api/v1"
 max_tokens = 200
 
@@ -122,17 +132,34 @@ level = "info"
     assert_eq!(config.mastodon.access_token, "test_access_token");
     assert_eq!(config.openrouter.api_key, "test_openrouter_key");
     assert_eq!(config.openrouter.model, "test-model");
+    assert_eq!(config.openrouter.vision_model, "test-vision-model");
+    assert_eq!(config.openrouter.text_model, "test-text-model");
     assert_eq!(config.openrouter.max_tokens, Some(200));
     assert_eq!(config.media().max_size_mb, Some(15));
     assert_eq!(config.balance().threshold, Some(10.0));
     assert_eq!(config.logging().level, Some("info".to_string()));
 
-    // Restore original directory
-    std::env::set_current_dir(original_dir).unwrap();
+    // Restore original directory - only if it still exists
+    if original_dir.exists() {
+        std::env::set_current_dir(original_dir).unwrap();
+    } else {
+        // If original directory no longer exists, set to a safe fallback
+        let current = std::env::current_dir().unwrap_or_else(|_| {
+            // If even that fails, use the temp dir's parent
+            temp_dir
+                .path()
+                .parent()
+                .unwrap_or(temp_dir.path())
+                .to_path_buf()
+        });
+        std::env::set_current_dir(current).ok(); // Best effort
+    }
 }
 
 #[tokio::test]
 async fn test_config_environment_variable_overrides() {
+    let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
     // Create a temporary directory and change to it to avoid loading existing config
     let temp_dir = tempfile::tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
@@ -144,6 +171,8 @@ async fn test_config_environment_variable_overrides() {
         "ALTERNATOR_MASTODON_ACCESS_TOKEN",
         "ALTERNATOR_OPENROUTER_API_KEY",
         "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_VISION_MODEL",
+        "ALTERNATOR_OPENROUTER_TEXT_MODEL",
         "ALTERNATOR_OPENROUTER_MAX_TOKENS",
         "ALTERNATOR_BALANCE_ENABLED",
         "ALTERNATOR_BALANCE_THRESHOLD",
@@ -162,16 +191,17 @@ async fn test_config_environment_variable_overrides() {
     std::env::set_var("ALTERNATOR_MASTODON_ACCESS_TOKEN", "env_access_token");
     std::env::set_var("ALTERNATOR_OPENROUTER_API_KEY", "env_openrouter_key");
     std::env::set_var("ALTERNATOR_OPENROUTER_MODEL", "env-model");
+    std::env::set_var("ALTERNATOR_OPENROUTER_VISION_MODEL", "env-vision-model");
+    std::env::set_var("ALTERNATOR_OPENROUTER_TEXT_MODEL", "env-text-model");
     std::env::set_var("ALTERNATOR_OPENROUTER_MAX_TOKENS", "300");
     std::env::set_var("ALTERNATOR_BALANCE_ENABLED", "false");
     std::env::set_var("ALTERNATOR_BALANCE_THRESHOLD", "15.5");
     std::env::set_var("ALTERNATOR_LOG_LEVEL", "debug");
 
-    // Verify environment variables are set
-    assert_eq!(
-        std::env::var("ALTERNATOR_MASTODON_INSTANCE_URL").unwrap(),
-        "https://env.mastodon.social"
-    );
+    // Verify environment variables are set immediately (no async delay needed)
+    let instance_url = std::env::var("ALTERNATOR_MASTODON_INSTANCE_URL")
+        .expect("ALTERNATOR_MASTODON_INSTANCE_URL should be set");
+    assert_eq!(instance_url, "https://env.mastodon.social");
 
     // Load config (should use environment variables)
     let config = Config::load(None).unwrap();
@@ -180,6 +210,8 @@ async fn test_config_environment_variable_overrides() {
     assert_eq!(config.mastodon.access_token, "env_access_token");
     assert_eq!(config.openrouter.api_key, "env_openrouter_key");
     assert_eq!(config.openrouter.model, "env-model");
+    assert_eq!(config.openrouter.vision_model, "env-vision-model");
+    assert_eq!(config.openrouter.text_model, "env-text-model");
     assert_eq!(config.openrouter.max_tokens, Some(300));
     assert_eq!(config.balance().enabled, Some(false));
     assert_eq!(config.balance().threshold, Some(15.5));
@@ -190,23 +222,42 @@ async fn test_config_environment_variable_overrides() {
     std::env::remove_var("ALTERNATOR_MASTODON_ACCESS_TOKEN");
     std::env::remove_var("ALTERNATOR_OPENROUTER_API_KEY");
     std::env::remove_var("ALTERNATOR_OPENROUTER_MODEL");
+    std::env::remove_var("ALTERNATOR_OPENROUTER_VISION_MODEL");
+    std::env::remove_var("ALTERNATOR_OPENROUTER_TEXT_MODEL");
     std::env::remove_var("ALTERNATOR_OPENROUTER_MAX_TOKENS");
     std::env::remove_var("ALTERNATOR_BALANCE_ENABLED");
     std::env::remove_var("ALTERNATOR_BALANCE_THRESHOLD");
     std::env::remove_var("ALTERNATOR_LOG_LEVEL");
 
-    // Restore original directory
-    std::env::set_current_dir(original_dir).unwrap();
+    // Restore original directory - only if it still exists
+    if original_dir.exists() {
+        std::env::set_current_dir(original_dir).unwrap();
+    } else {
+        // If original directory no longer exists, set to a safe fallback
+        let current = std::env::current_dir().unwrap_or_else(|_| {
+            // If even that fails, use the temp dir's parent
+            temp_dir
+                .path()
+                .parent()
+                .unwrap_or(temp_dir.path())
+                .to_path_buf()
+        });
+        std::env::set_current_dir(current).ok(); // Best effort
+    }
 }
 
 #[tokio::test]
 async fn test_config_validation_missing_required_fields() {
+    let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
     // Clean up any existing ALTERNATOR env vars to ensure test isolation
     let env_vars_to_clean = [
         "ALTERNATOR_MASTODON_INSTANCE_URL",
         "ALTERNATOR_MASTODON_ACCESS_TOKEN",
         "ALTERNATOR_OPENROUTER_API_KEY",
         "ALTERNATOR_OPENROUTER_MODEL",
+        "ALTERNATOR_OPENROUTER_VISION_MODEL",
+        "ALTERNATOR_OPENROUTER_TEXT_MODEL",
         "ALTERNATOR_OPENROUTER_MAX_TOKENS",
         "ALTERNATOR_BALANCE_ENABLED",
         "ALTERNATOR_BALANCE_THRESHOLD",
@@ -230,9 +281,20 @@ access_token = "test_token"
 [openrouter]
 api_key = "test_key"
 model = "test-model"
+vision_model = "test-vision-model"
+text_model = "test-text-model"
 "#;
 
-    std::fs::write(&config_path, config_content).unwrap();
+    // Ensure the temporary directory exists and is writable
+    assert!(temp_dir.path().exists(), "Temporary directory should exist");
+    assert!(
+        temp_dir.path().is_dir(),
+        "Temporary directory should be a directory"
+    );
+
+    // Write the config file with better error handling
+    std::fs::write(&config_path, config_content)
+        .unwrap_or_else(|e| panic!("Failed to write config file to {:?}: {}", config_path, e));
 
     let result = Config::load(Some(config_path));
     assert!(result.is_err());
@@ -240,8 +302,21 @@ model = "test-model"
     let error = result.unwrap_err();
     assert!(error.to_string().contains("mastodon.instance_url"));
 
-    // Restore original directory
-    std::env::set_current_dir(original_dir).unwrap();
+    // Restore original directory - only if it still exists
+    if original_dir.exists() {
+        std::env::set_current_dir(original_dir).unwrap();
+    } else {
+        // If original directory no longer exists, set to a safe fallback
+        let current = std::env::current_dir().unwrap_or_else(|_| {
+            // If even that fails, use the temp dir's parent
+            temp_dir
+                .path()
+                .parent()
+                .unwrap_or(temp_dir.path())
+                .to_path_buf()
+        });
+        std::env::set_current_dir(current).ok(); // Best effort
+    }
 }
 
 #[tokio::test]
