@@ -12,6 +12,7 @@ mod media;
 mod openrouter;
 mod toot_handler;
 mod whisper;
+mod whisper_cli;
 
 use crate::config::{Config, RuntimeConfig};
 use crate::error::{AlternatorError, ErrorRecovery};
@@ -343,7 +344,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     Ok(())
 }
 
-/// Check if Whisper model exists and download if necessary
+/// Check Whisper model availability and preload if configured
 async fn check_whisper_model(config: &RuntimeConfig) -> Result<(), AlternatorError> {
     let whisper_config = config.config().whisper();
 
@@ -353,27 +354,30 @@ async fn check_whisper_model(config: &RuntimeConfig) -> Result<(), AlternatorErr
     }
 
     let model_name = whisper_config.model.as_deref().unwrap_or("base");
+    info!("Initializing Whisper CLI with model: {}", model_name);
 
-    // Validate model name first
-    crate::whisper::WhisperModelManager::validate_model_name(model_name)?;
-
-    let manager = crate::whisper::WhisperModelManager::new(whisper_config.clone())?;
-
-    if manager.model_exists(model_name) {
-        info!("✓ Whisper model '{}' is available", model_name);
-        return Ok(());
-    }
-
-    warn!("Whisper model '{}' not found, downloading...", model_name);
-    info!("This may take a few minutes depending on model size and network speed");
-
-    let model_path = manager.ensure_model_available(model_name).await?;
+    // Create WhisperCli instance to validate configuration
+    let whisper_cli =
+        crate::whisper_cli::WhisperCli::new(whisper_config).map_err(AlternatorError::Media)?;
 
     info!(
-        "✓ Whisper model '{}' ready at: {}",
-        model_name,
-        model_path.display()
+        "✓ Whisper CLI initialized - Model: {}, Device: {}",
+        whisper_cli.model(),
+        whisper_cli.device()
     );
+
+    // Preload model if configured to do so
+    if whisper_config.preload.unwrap_or(true) {
+        info!("Preloading Whisper model for faster transcriptions...");
+        whisper_cli
+            .preload_model()
+            .await
+            .map_err(AlternatorError::Media)?;
+        info!("✓ Whisper model preloaded successfully");
+    } else {
+        info!("Whisper model preloading disabled - models will be loaded on demand");
+    }
+
     Ok(())
 }
 

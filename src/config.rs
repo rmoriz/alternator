@@ -118,6 +118,11 @@ pub struct WhisperConfig {
     pub enabled: Option<bool>,
     pub language: Option<String>,
     pub max_duration_minutes: Option<u32>,
+    // New WhisperCli-specific fields
+    pub python_executable: Option<String>,
+    pub device: Option<String>,
+    pub backend: Option<String>,
+    pub preload: Option<bool>,
 }
 
 impl Default for MediaConfig {
@@ -186,6 +191,11 @@ impl Default for WhisperConfig {
             enabled: Some(false),           // Disabled by default until user explicitly enables
             language: None,                 // Auto-detect
             max_duration_minutes: Some(10), // Skip files longer than 10 minutes
+            // WhisperCli defaults
+            python_executable: Some("python3".to_string()), // Default Python executable
+            device: None,                                   // Auto-detect GPU/CPU
+            backend: None,                                  // Auto-detect (rocm/cuda/cpu)
+            preload: Some(true),                            // Enable model preloading by default
         }
     }
 }
@@ -407,6 +417,26 @@ impl Config {
                 )
             })?);
         }
+        if let Ok(python_executable) = env::var("ALTERNATOR_WHISPER_PYTHON_EXECUTABLE") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.python_executable = Some(python_executable);
+        }
+        if let Ok(device) = env::var("ALTERNATOR_WHISPER_DEVICE") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.device = Some(device);
+        }
+        if let Ok(backend) = env::var("ALTERNATOR_WHISPER_BACKEND") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.backend = Some(backend);
+        }
+        if let Ok(preload) = env::var("ALTERNATOR_WHISPER_PRELOAD") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.preload = Some(preload.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_WHISPER_PRELOAD must be true or false".to_string(),
+                )
+            })?);
+        }
 
         Ok(())
     }
@@ -456,6 +486,29 @@ impl Config {
                     return Err(ConfigError::InvalidValue(
                         "balance.check_time must be in HH:MM format".to_string(),
                     ));
+                }
+            }
+        }
+
+        // Validate whisper configuration
+        if let Some(ref whisper) = self.whisper {
+            if let Some(ref device) = whisper.device {
+                let valid_devices = ["auto", "cpu", "cuda", "rocm"];
+                if !valid_devices.contains(&device.as_str()) {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "whisper.device must be one of: {}",
+                        valid_devices.join(", ")
+                    )));
+                }
+            }
+
+            if let Some(ref backend) = whisper.backend {
+                let valid_backends = ["auto", "cpu", "cuda", "rocm"];
+                if !valid_backends.contains(&backend.as_str()) {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "whisper.backend must be one of: {}",
+                        valid_backends.join(", ")
+                    )));
                 }
             }
         }

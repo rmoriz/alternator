@@ -65,6 +65,10 @@ fn create_test_config() -> Config {
             model_dir: None,
             language: None,
             max_duration_minutes: Some(10),
+            python_executable: Some("python3".to_string()),
+            device: None,
+            backend: None,
+            preload: Some(true),
         }),
     }
 }

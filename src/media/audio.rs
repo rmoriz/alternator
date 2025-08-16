@@ -2,10 +2,9 @@ use crate::config::{OpenRouterConfig, WhisperConfig};
 use crate::error::MediaError;
 use crate::mastodon::MediaAttachment;
 use crate::openrouter::OpenRouterClient;
-use crate::whisper::WhisperModelManager;
+use crate::whisper_cli::WhisperCli;
 use std::process::Command;
 use tempfile::NamedTempFile;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// Supported audio formats for transcription  
 pub const SUPPORTED_AUDIO_FORMATS: &[&str] = &[
@@ -31,7 +30,7 @@ pub fn is_ffmpeg_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Process audio file for transcription using Whisper
+/// Process audio file for transcription using Whisper CLI
 pub async fn process_audio_for_transcript(
     media: &MediaAttachment,
     whisper_config: &WhisperConfig,
@@ -126,8 +125,9 @@ pub async fn process_audio_for_transcript(
     // Convert audio to WAV format using FFmpeg
     let wav_data = convert_audio_to_wav(&audio_data).await?;
 
-    // Transcribe audio using Whisper
-    let transcript = transcribe_wav_audio(&wav_data, whisper_config, openrouter_config).await?;
+    // Transcribe audio using Whisper CLI
+    let transcript =
+        transcribe_audio_with_whisper_cli(&wav_data, whisper_config, openrouter_config).await?;
 
     Ok(transcript)
 }
@@ -201,121 +201,28 @@ async fn convert_audio_to_wav(audio_data: &[u8]) -> Result<Vec<u8>, MediaError> 
     result
 }
 
-/// Transcribe WAV audio data using Whisper
-async fn transcribe_wav_audio(
+/// Transcribe audio data using Whisper CLI
+async fn transcribe_audio_with_whisper_cli(
     wav_data: &[u8],
     whisper_config: &WhisperConfig,
     openrouter_config: Option<&OpenRouterConfig>,
 ) -> Result<String, MediaError> {
-    // Suppress all Whisper output during the entire process (model loading and transcription)
-    let _suppressed_output = SuppressOutput::new();
+    // Create Whisper CLI instance
+    let whisper_cli = WhisperCli::new(whisper_config)?;
 
-    let model_name = whisper_config.model.as_ref().ok_or_else(|| {
-        MediaError::ProcessingFailed("No Whisper model specified in configuration".to_string())
-    })?;
-
-    // Create model manager and download model
-    let model_manager = WhisperModelManager::new(whisper_config.clone()).map_err(|e| {
-        MediaError::ProcessingFailed(format!("Failed to initialize Whisper model manager: {e}"))
-    })?;
-
-    let model_path = model_manager
-        .download_model(model_name)
-        .await
-        .map_err(|e| {
-            MediaError::ProcessingFailed(format!("Failed to download Whisper model: {e}"))
-        })?;
-
+    // Save WAV data to a temporary file
     let wav_file = NamedTempFile::with_suffix(".wav").map_err(|e| {
         MediaError::ProcessingFailed(format!("Failed to create WAV temp file: {e}"))
     })?;
 
-    // Write data and sync before Whisper processing
     tokio::fs::write(wav_file.path(), wav_data)
         .await
         .map_err(|e| MediaError::ProcessingFailed(format!("Failed to write WAV data: {e}")))?;
 
-    let wav_file_path = wav_file.path().to_path_buf();
-
-    let audio_data = load_wav_as_f32_pcm(&wav_file_path).await?;
-
-    // Prepare parameters for the blocking task
-    let model_path_string = model_path.to_string_lossy().to_string();
-    let language = whisper_config.language.clone();
-    let model_name_for_log = model_name.to_string();
-
-    // Move the entire Whisper processing to a blocking thread to avoid blocking the main thread
-    let transcript = tokio::task::spawn_blocking(move || -> Result<String, MediaError> {
-        // Enable debugging for language detection
-        tracing::info!("Whisper model: {}", model_name_for_log);
-        tracing::info!("Configured language: {:?}", language);
-
-        // Create Whisper context with conservative parameters inside the blocking task
-        let mut ctx_params = WhisperContextParameters::default();
-        // Disable GPU acceleration to avoid CPU instruction conflicts
-        ctx_params.use_gpu(false);
-
-        let ctx = WhisperContext::new_with_params(&model_path_string, ctx_params).map_err(|e| {
-            MediaError::ProcessingFailed(format!("Failed to create Whisper context: {e}"))
-        })?;
-
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-
-        // Explicitly disable translation and force transcription-only mode
-        params.set_translate(false);
-
-        // Set language - only set it if explicitly configured, otherwise let Whisper auto-detect
-        if let Some(ref lang) = language {
-            if !lang.is_empty() && lang != "auto" {
-                tracing::info!("Using configured language: {}", lang);
-                params.set_language(Some(lang));
-            } else {
-                tracing::info!("Language set to auto-detect mode");
-                // Don't set language parameter to enable auto-detection
-            }
-        } else {
-            tracing::info!("No language configured, using auto-detection");
-            // Don't set language parameter to enable auto-detection
-        }
-
-        // Suppress all possible Whisper output
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        params.set_no_context(true);
-        params.set_single_segment(false);
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-
-        let mut state = ctx.create_state().map_err(|e| {
-            MediaError::ProcessingFailed(format!("Failed to create Whisper state: {e}"))
-        })?;
-
-        // This is the CPU-intensive blocking operation
-        state.full(params, &audio_data).map_err(|e| {
-            MediaError::ProcessingFailed(format!("Whisper transcription failed: {e}"))
-        })?;
-
-        // Extract transcript from segments
-        let num_segments = state.full_n_segments().map_err(|e| {
-            MediaError::ProcessingFailed(format!("Failed to get segment count: {e}"))
-        })?;
-
-        let mut transcript = String::new();
-        for i in 0..num_segments {
-            let segment_text = state.full_get_segment_text(i).map_err(|e| {
-                MediaError::ProcessingFailed(format!("Failed to get segment text: {e}"))
-            })?;
-            transcript.push_str(&segment_text);
-        }
-
-        Ok(transcript)
-    })
-    .await
-    .map_err(|e| {
-        MediaError::ProcessingFailed(format!("Whisper transcription task failed: {e}"))
-    })??;
+    // Transcribe using Whisper CLI
+    let transcript = whisper_cli
+        .transcribe_audio(wav_file.path(), whisper_config.language.as_deref())
+        .await?;
 
     // Normalize Unicode and clean the transcript
     let transcript = transcript
@@ -451,66 +358,6 @@ Remember: Your entire response must be in the same language as the transcript ab
     }
 
     unreachable!("Should have returned in the loop")
-}
-
-/// Load WAV file as f32 PCM data for Whisper processing
-async fn load_wav_as_f32_pcm(wav_path: &std::path::Path) -> Result<Vec<f32>, MediaError> {
-    let wav_path_string = wav_path.to_string_lossy().to_string();
-
-    // Use spawn_blocking for FFmpeg PCM extraction to avoid blocking the main thread
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new("ffmpeg")
-            .args([
-                "-i",
-                &wav_path_string,
-                "-f",
-                "f32le",
-                "-ar",
-                "16000",
-                "-ac",
-                "1",
-                "-",
-            ])
-            .output()
-    })
-    .await
-    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg PCM task failed: {e}")))?
-    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg PCM extraction failed: {e}")))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(MediaError::ProcessingFailed(format!(
-            "FFmpeg PCM extraction failed: {stderr}"
-        )));
-    }
-
-    let pcm_bytes = output.stdout;
-    let mut pcm_data = Vec::with_capacity(pcm_bytes.len() / 4);
-
-    for chunk in pcm_bytes.chunks_exact(4) {
-        if chunk.len() != 4 {
-            continue; // Skip incomplete chunks to prevent panic
-        }
-        let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        pcm_data.push(sample);
-    }
-
-    Ok(pcm_data)
-}
-
-/// Utility to suppress stdout/stderr output during Whisper processing
-struct SuppressOutput {
-    // This is a marker struct - actual suppression happens via Whisper parameters
-    // The underlying C library output can't be easily suppressed without libc
-}
-
-impl SuppressOutput {
-    fn new() -> Self {
-        // For now, we rely on the Whisper parameters to suppress most output
-        // The initialization messages from the C library are harder to suppress
-        // without adding libc dependency
-        Self {}
-    }
 }
 
 #[cfg(test)]

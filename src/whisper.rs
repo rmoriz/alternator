@@ -41,12 +41,14 @@ impl WhisperModelManager {
     }
 
     /// Check if the configured model exists locally
+    #[allow(dead_code)] // Legacy method, may be used for compatibility
     pub fn model_exists(&self, model_name: &str) -> bool {
         let model_file = self.get_model_path(model_name);
         model_file.exists()
     }
 
     /// Ensure model is available, download if necessary
+    #[allow(dead_code)] // Legacy method, may be used for compatibility
     pub async fn ensure_model_available(
         &self,
         model_name: &str,

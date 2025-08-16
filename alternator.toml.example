@@ -141,6 +141,30 @@ model = "base"
 # Set to 0 to disable the limit (not recommended)
 max_duration_minutes = 10
 
+# Python executable path (optional, default: "python3")
+# Path to Python executable that has OpenAI Whisper installed
+# Useful if you have multiple Python versions or custom installations
+python_executable = "python3"
+
+# Device preference for Whisper processing (optional, default: auto-detect)
+# Options: "auto", "cpu", "cuda", "rocm"
+# "auto": automatically detect and use best available device
+# "cpu": force CPU processing (slower but always available)
+# "cuda": force NVIDIA GPU processing (faster, requires CUDA)
+# "rocm": force AMD GPU processing (faster, requires ROCm)
+# device = "auto"
+
+# Backend preference for Whisper processing (optional, default: auto-detect)
+# Options: "auto", "cpu", "cuda", "rocm"
+# Usually same as device, but can be different in some setups
+# backend = "auto"
+
+# Enable model preloading at startup (optional, default: true)
+# When true, Whisper models are loaded at startup for faster transcription
+# When false, models are loaded on-demand (slower first transcription)
+# Set to false to reduce memory usage if you rarely use audio transcription
+preload = true
+
 # Example of environment variable overrides:
 # You can override any configuration value using environment variables
 # with the prefix ALTERNATOR_ and uppercase section/key names:
@@ -163,6 +187,10 @@ max_duration_minutes = 10
 # ALTERNATOR_WHISPER_MODEL_DIR=/custom/whisper/models
 # ALTERNATOR_WHISPER_LANGUAGE=en
 # ALTERNATOR_WHISPER_MAX_DURATION_MINUTES=15
+# ALTERNATOR_WHISPER_PYTHON_EXECUTABLE=python3
+# ALTERNATOR_WHISPER_DEVICE=auto
+# ALTERNATOR_WHISPER_BACKEND=auto
+# ALTERNATOR_WHISPER_PRELOAD=true
 #
 # Example whisper section in TOML:
 #
