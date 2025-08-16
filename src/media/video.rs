@@ -148,27 +148,40 @@ async fn extract_audio_from_video(video_data: &[u8]) -> Result<Vec<u8>, MediaErr
 
     let output_file_path = output_file.path().to_path_buf();
 
-    // Extract audio from video and convert to WAV
-    let output = Command::new("ffmpeg")
-        .args([
-            "-i",
-            input_file_path.to_str().ok_or_else(|| {
-                MediaError::ProcessingFailed("Invalid input file path encoding".to_string())
-            })?,
-            "-vn", // No video
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-y", // Overwrite output file
-            output_file_path.to_str().ok_or_else(|| {
-                MediaError::ProcessingFailed("Invalid output file path encoding".to_string())
-            })?,
-        ])
-        .output()
-        .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg execution failed: {e}")))?;
+    // Extract audio from video and convert to WAV (non-blocking)
+    let input_path_clone = input_file_path.clone();
+    let output_path_clone = output_file_path.clone();
+
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new("ffmpeg")
+            .args([
+                "-i",
+                input_path_clone.to_str().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Invalid input file path encoding",
+                    )
+                })?,
+                "-vn", // No video
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-y", // Overwrite output file
+                output_path_clone.to_str().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Invalid output file path encoding",
+                    )
+                })?,
+            ])
+            .output()
+    })
+    .await
+    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg task failed: {e}")))?
+    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg execution failed: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -222,69 +235,85 @@ async fn transcribe_wav_audio(
 
     let wav_file_path = wav_file.path().to_path_buf();
 
-    let ctx = WhisperContext::new_with_params(
-        model_path.to_str().ok_or_else(|| {
-            MediaError::ProcessingFailed("Invalid model path encoding".to_string())
-        })?,
-        WhisperContextParameters::default(),
-    )
-    .map_err(|e| MediaError::ProcessingFailed(format!("Failed to create Whisper context: {e}")))?;
-
     let audio_data = load_wav_as_f32_pcm(&wav_file_path).await?;
 
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // Prepare parameters for the blocking task
+    let model_path_string = model_path.to_string_lossy().to_string();
+    let language = whisper_config.language.clone();
+    let model_name_for_log = model_name.to_string();
 
-    // Explicitly disable translation and force transcription-only mode
-    params.set_translate(false);
+    // Move the entire Whisper processing to a blocking thread to avoid blocking the main thread
+    let transcript = tokio::task::spawn_blocking(move || -> Result<String, MediaError> {
+        // Enable debugging for language detection
+        tracing::info!("Whisper model: {}", model_name_for_log);
+        tracing::info!("Configured language: {:?}", language);
 
-    // Enable debugging for language detection
-    tracing::info!("Whisper model: {}", model_name);
-    tracing::info!("Configured language: {:?}", whisper_config.language);
+        // Create Whisper context with conservative parameters inside the blocking task
+        let mut ctx_params = WhisperContextParameters::default();
+        // Disable GPU acceleration to avoid CPU instruction conflicts
+        ctx_params.use_gpu(false);
 
-    // Set language - only set it if explicitly configured, otherwise let Whisper auto-detect
-    if let Some(ref lang) = whisper_config.language {
-        if !lang.is_empty() && lang != "auto" {
-            tracing::info!("Using configured language: {}", lang);
-            params.set_language(Some(lang));
+        let ctx = WhisperContext::new_with_params(&model_path_string, ctx_params).map_err(|e| {
+            MediaError::ProcessingFailed(format!("Failed to create Whisper context: {e}"))
+        })?;
+
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+
+        // Explicitly disable translation and force transcription-only mode
+        params.set_translate(false);
+
+        // Set language - only set it if explicitly configured, otherwise let Whisper auto-detect
+        if let Some(ref lang) = language {
+            if !lang.is_empty() && lang != "auto" {
+                tracing::info!("Using configured language: {}", lang);
+                params.set_language(Some(lang));
+            } else {
+                tracing::info!("Language set to auto-detect mode");
+                // Don't set language parameter to enable auto-detection
+            }
         } else {
-            tracing::info!("Language set to auto-detect mode");
+            tracing::info!("No language configured, using auto-detection");
             // Don't set language parameter to enable auto-detection
         }
-    } else {
-        tracing::info!("No language configured, using auto-detection");
-        // Don't set language parameter to enable auto-detection
-    }
-    // Suppress all possible Whisper output
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    params.set_no_context(true);
-    params.set_single_segment(false);
-    params.set_suppress_blank(true);
-    params.set_suppress_nst(true);
 
-    let mut state = ctx.create_state().map_err(|e| {
-        MediaError::ProcessingFailed(format!("Failed to create Whisper state: {e}"))
-    })?;
+        // Suppress all possible Whisper output
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        params.set_no_context(true);
+        params.set_single_segment(false);
+        params.set_suppress_blank(true);
+        params.set_suppress_nst(true);
 
-    state
-        .full(params, &audio_data)
-        .map_err(|e| MediaError::ProcessingFailed(format!("Whisper transcription failed: {e}")))?;
-
-    // Output suppression ends here when _suppressed_output is dropped
-
-    let num_segments = state
-        .full_n_segments()
-        .map_err(|e| MediaError::ProcessingFailed(format!("Failed to get segment count: {e}")))?;
-
-    let mut transcript = String::new();
-    for i in 0..num_segments {
-        let segment_text = state.full_get_segment_text(i).map_err(|e| {
-            MediaError::ProcessingFailed(format!("Failed to get segment text: {e}"))
+        let mut state = ctx.create_state().map_err(|e| {
+            MediaError::ProcessingFailed(format!("Failed to create Whisper state: {e}"))
         })?;
-        transcript.push_str(&segment_text);
-    }
+
+        // This is the CPU-intensive blocking operation
+        state.full(params, &audio_data).map_err(|e| {
+            MediaError::ProcessingFailed(format!("Whisper transcription failed: {e}"))
+        })?;
+
+        // Extract transcript from segments
+        let num_segments = state.full_n_segments().map_err(|e| {
+            MediaError::ProcessingFailed(format!("Failed to get segment count: {e}"))
+        })?;
+
+        let mut transcript = String::new();
+        for i in 0..num_segments {
+            let segment_text = state.full_get_segment_text(i).map_err(|e| {
+                MediaError::ProcessingFailed(format!("Failed to get segment text: {e}"))
+            })?;
+            transcript.push_str(&segment_text);
+        }
+
+        Ok(transcript)
+    })
+    .await
+    .map_err(|e| {
+        MediaError::ProcessingFailed(format!("Whisper transcription task failed: {e}"))
+    })??;
 
     // Normalize Unicode and clean the transcript
     let transcript = transcript
@@ -327,24 +356,26 @@ async fn transcribe_wav_audio(
 
 /// Load WAV file as f32 PCM data for Whisper processing
 async fn load_wav_as_f32_pcm(wav_path: &std::path::Path) -> Result<Vec<f32>, MediaError> {
-    let wav_path_str = wav_path.to_str().ok_or_else(|| {
-        MediaError::ProcessingFailed("Invalid WAV file path encoding".to_string())
-    })?;
+    let wav_path_string = wav_path.to_string_lossy().to_string();
 
-    let output = Command::new("ffmpeg")
-        .args([
-            "-i",
-            wav_path_str,
-            "-f",
-            "f32le",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-",
-        ])
-        .output()
-        .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg PCM extraction failed: {e}")))?;
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new("ffmpeg")
+            .args([
+                "-i",
+                &wav_path_string,
+                "-f",
+                "f32le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-",
+            ])
+            .output()
+    })
+    .await
+    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg PCM task failed: {e}")))?
+    .map_err(|e| MediaError::ProcessingFailed(format!("FFmpeg PCM extraction failed: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
