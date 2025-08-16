@@ -66,7 +66,16 @@ max_tokens = 200
 
 [media]
 # Maximum file size to process in MB (optional, default: 10)
+# This applies to image files
 max_size_mb = 10
+
+# Maximum audio file size to process in MB (optional, default: 50)
+# Audio files larger than this will be skipped
+max_audio_size_mb = 50
+
+# Maximum video file size to process in MB (optional, default: 250)
+# Video files larger than this will be skipped
+max_video_size_mb = 250
 
 # Supported formats (optional, default: JPEG, PNG, GIF, WebP + audio formats)
 # Image formats: JPEG, PNG, GIF, WebP (always supported)
@@ -143,6 +152,9 @@ max_duration_minutes = 10
 # ALTERNATOR_OPENROUTER_VISION_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
 # ALTERNATOR_OPENROUTER_TEXT_MODEL=tngtech/deepseek-r1t2-chimera:free
 # ALTERNATOR_OPENROUTER_MAX_TOKENS=200
+# ALTERNATOR_MEDIA_MAX_SIZE_MB=10
+# ALTERNATOR_MEDIA_MAX_AUDIO_SIZE_MB=50
+# ALTERNATOR_MEDIA_MAX_VIDEO_SIZE_MB=250
 # ALTERNATOR_BALANCE_ENABLED=false
 # ALTERNATOR_BALANCE_THRESHOLD=10.0
 # ALTERNATOR_LOG_LEVEL=debug

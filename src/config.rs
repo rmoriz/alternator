@@ -93,6 +93,8 @@ pub struct OpenRouterConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaConfig {
     pub max_size_mb: Option<u32>,
+    pub max_audio_size_mb: Option<u32>,
+    pub max_video_size_mb: Option<u32>,
     pub supported_formats: Option<Vec<String>>,
     pub resize_max_dimension: Option<u32>,
 }
@@ -122,6 +124,8 @@ impl Default for MediaConfig {
     fn default() -> Self {
         Self {
             max_size_mb: Some(10),
+            max_audio_size_mb: Some(50),
+            max_video_size_mb: Some(250),
             supported_formats: Some(vec![
                 // Image formats
                 "image/jpeg".to_string(),
@@ -346,6 +350,32 @@ impl Config {
         if let Ok(level) = env::var("ALTERNATOR_LOG_LEVEL") {
             let logging = self.logging.get_or_insert_with(LoggingConfig::default);
             logging.level = Some(level);
+        }
+
+        // Media configuration
+        if let Ok(max_size_mb) = env::var("ALTERNATOR_MEDIA_MAX_SIZE_MB") {
+            let media = self.media.get_or_insert_with(MediaConfig::default);
+            media.max_size_mb = Some(max_size_mb.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MEDIA_MAX_SIZE_MB must be a valid number".to_string(),
+                )
+            })?);
+        }
+        if let Ok(max_audio_size_mb) = env::var("ALTERNATOR_MEDIA_MAX_AUDIO_SIZE_MB") {
+            let media = self.media.get_or_insert_with(MediaConfig::default);
+            media.max_audio_size_mb = Some(max_audio_size_mb.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MEDIA_MAX_AUDIO_SIZE_MB must be a valid number".to_string(),
+                )
+            })?);
+        }
+        if let Ok(max_video_size_mb) = env::var("ALTERNATOR_MEDIA_MAX_VIDEO_SIZE_MB") {
+            let media = self.media.get_or_insert_with(MediaConfig::default);
+            media.max_video_size_mb = Some(max_video_size_mb.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MEDIA_MAX_VIDEO_SIZE_MB must be a valid number".to_string(),
+                )
+            })?);
         }
 
         // Whisper configuration

@@ -35,6 +35,7 @@ pub fn is_ffmpeg_available() -> bool {
 pub async fn process_audio_for_transcript(
     media: &MediaAttachment,
     whisper_config: &WhisperConfig,
+    media_config: &crate::config::MediaConfig,
     openrouter_config: Option<&OpenRouterConfig>,
 ) -> Result<String, MediaError> {
     // Check if it's an audio file
@@ -114,8 +115,8 @@ pub async fn process_audio_for_transcript(
         }
     }
 
-    // Also check against default media config size limit
-    let max_size_mb = 50.0; // Default media config max size
+    // Also check against media config size limit
+    let max_size_mb = media_config.max_audio_size_mb.unwrap_or(50) as f64;
     if size_mb > max_size_mb {
         return Err(MediaError::ProcessingFailed(format!(
             "Audio size {size_mb:.2}MB exceeds limit of {max_size_mb:.2}MB"

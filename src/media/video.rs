@@ -24,6 +24,7 @@ pub const SUPPORTED_VIDEO_FORMATS: &[&str] = &[
 pub async fn process_video_for_transcript(
     media: &MediaAttachment,
     whisper_config: &WhisperConfig,
+    media_config: &crate::config::MediaConfig,
     openrouter_config: Option<&OpenRouterConfig>,
 ) -> Result<String, MediaError> {
     // Check if it's a video file
@@ -111,8 +112,8 @@ pub async fn process_video_for_transcript(
         }
     }
 
-    // Also check against default media config size limit
-    let max_size_mb = 250.0; // Higher limit for video files
+    // Also check against media config size limit
+    let max_size_mb = media_config.max_video_size_mb.unwrap_or(250) as f64;
     if size_mb > max_size_mb {
         return Err(MediaError::ProcessingFailed(format!(
             "Video size {size_mb:.2}MB exceeds limit of {max_size_mb:.2}MB"

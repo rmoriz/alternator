@@ -244,6 +244,7 @@ impl TootStreamHandler {
                 match crate::media::process_audio_for_transcript(
                     media,
                     self.config.config.whisper(),
+                    self.config.config.media(),
                     Some(&self.config.config.openrouter),
                 )
                 .await
@@ -335,6 +336,7 @@ impl TootStreamHandler {
                 match crate::media::process_video_for_transcript(
                     media,
                     self.config.config.whisper(),
+                    self.config.config.media(),
                     Some(&self.config.config.openrouter),
                 )
                 .await

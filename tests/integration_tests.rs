@@ -41,6 +41,8 @@ fn create_test_config() -> Config {
         },
         media: Some(MediaConfig {
             max_size_mb: Some(10),
+            max_audio_size_mb: Some(50),
+            max_video_size_mb: Some(250),
             supported_formats: Some(vec![
                 "image/jpeg".to_string(),
                 "image/png".to_string(),
