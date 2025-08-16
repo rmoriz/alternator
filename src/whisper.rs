@@ -1,8 +1,10 @@
 use crate::config::WhisperConfig;
 use crate::error::AlternatorError;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::env;
 use std::path::{Path, PathBuf};
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 /// Whisper model manager for downloading and managing models
@@ -38,6 +40,34 @@ impl WhisperModelManager {
         Ok(home_dir.join(".alternator").join("models"))
     }
 
+    /// Check if the configured model exists locally
+    pub fn model_exists(&self, model_name: &str) -> bool {
+        let model_file = self.get_model_path(model_name);
+        model_file.exists()
+    }
+
+    /// Ensure model is available, download if necessary
+    pub async fn ensure_model_available(
+        &self,
+        model_name: &str,
+    ) -> Result<PathBuf, AlternatorError> {
+        let model_file = self.get_model_path(model_name);
+
+        if model_file.exists() {
+            info!(
+                "Whisper model '{}' found at {}",
+                model_name,
+                model_file.display()
+            );
+            return Ok(model_file);
+        }
+
+        info!(
+            "Whisper model '{}' not found, starting download...",
+            model_name
+        );
+        self.download_model(model_name).await
+    }
     /// Download a Whisper model if it doesn't exist or update if newer version available
     pub async fn download_model(&self, model_name: &str) -> Result<PathBuf, AlternatorError> {
         let model_file = self.get_model_path(model_name);
@@ -90,7 +120,7 @@ impl WhisperModelManager {
         Ok(false)
     }
 
-    /// Download the actual model file from OpenAI's repository
+    /// Download the actual model file from OpenAI's repository with progress bar
     async fn download_model_file(
         &self,
         model_name: &str,
@@ -116,20 +146,72 @@ impl WhisperModelManager {
         }
 
         let total_size = response.content_length();
-        if let Some(size) = total_size {
+
+        // Create progress bar
+        let progress_bar = if let Some(size) = total_size {
             info!("Model size: {:.2} MB", size as f64 / 1_048_576.0);
-        }
+            let pb = ProgressBar::new(size);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template(
+                        "{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
+                    )
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            pb.set_message(format!("Downloading {}", model_name));
+            Some(pb)
+        } else {
+            info!("Model size unknown, downloading...");
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} {msg}")
+                    .unwrap(),
+            );
+            pb.set_message(format!("Downloading {} (size unknown)", model_name));
+            Some(pb)
+        };
 
-        // Write the file
-        let bytes = response.bytes().await.map_err(AlternatorError::Network)?;
-
-        fs::write(target_path, bytes).await.map_err(|e| {
+        // Stream download with progress updates
+        let mut file = tokio::fs::File::create(target_path).await.map_err(|e| {
             AlternatorError::InvalidData(format!(
-                "Failed to write model file {}: {}",
+                "Failed to create model file {}: {}",
                 target_path.display(),
                 e
             ))
         })?;
+
+        let mut stream = response.bytes_stream();
+        let mut downloaded = 0u64;
+
+        while let Some(chunk) = futures_util::stream::StreamExt::next(&mut stream).await {
+            let chunk = chunk.map_err(AlternatorError::Network)?;
+            file.write_all(&chunk).await.map_err(|e| {
+                AlternatorError::InvalidData(format!(
+                    "Failed to write to model file {}: {}",
+                    target_path.display(),
+                    e
+                ))
+            })?;
+
+            downloaded += chunk.len() as u64;
+            if let Some(ref pb) = progress_bar {
+                pb.set_position(downloaded);
+            }
+        }
+
+        file.flush().await.map_err(|e| {
+            AlternatorError::InvalidData(format!(
+                "Failed to flush model file {}: {}",
+                target_path.display(),
+                e
+            ))
+        })?;
+
+        if let Some(pb) = progress_bar {
+            pb.finish_with_message(format!("✓ Downloaded {}", model_name));
+        }
 
         info!("Successfully downloaded model: {}", model_name);
         Ok(())

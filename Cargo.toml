@@ -29,6 +29,7 @@ dirs = "5.0"
 tempfile = "3.8"
 unicode-normalization = "0.1"
 async-trait = "0.1"
+indicatif = "0.17"
 
 [lib]
 name = "alternator"

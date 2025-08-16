@@ -274,6 +274,12 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     info!("Performing startup validation");
     startup_validation(&mut mastodon_client, &openrouter_client).await?;
 
+    // Check and download Whisper model if needed
+    if config.is_audio_enabled() {
+        info!("Checking Whisper model availability");
+        check_whisper_model(&config).await?;
+    }
+
     // Set up graceful shutdown handling
     let shutdown_signal = setup_shutdown_signal();
 
@@ -334,6 +340,40 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     }
 
     info!("Application shutdown complete");
+    Ok(())
+}
+
+/// Check if Whisper model exists and download if necessary
+async fn check_whisper_model(config: &RuntimeConfig) -> Result<(), AlternatorError> {
+    let whisper_config = config.config().whisper();
+
+    // Skip if Whisper is disabled
+    if !whisper_config.enabled.unwrap_or(false) {
+        return Ok(());
+    }
+
+    let model_name = whisper_config.model.as_deref().unwrap_or("base");
+
+    // Validate model name first
+    crate::whisper::WhisperModelManager::validate_model_name(model_name)?;
+
+    let manager = crate::whisper::WhisperModelManager::new(whisper_config.clone())?;
+
+    if manager.model_exists(model_name) {
+        info!("✓ Whisper model '{}' is available", model_name);
+        return Ok(());
+    }
+
+    warn!("Whisper model '{}' not found, downloading...", model_name);
+    info!("This may take a few minutes depending on model size and network speed");
+
+    let model_path = manager.ensure_model_available(model_name).await?;
+
+    info!(
+        "✓ Whisper model '{}' ready at: {}",
+        model_name,
+        model_path.display()
+    );
     Ok(())
 }
 
