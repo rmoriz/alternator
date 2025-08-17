@@ -104,7 +104,9 @@ impl TootStreamHandler {
                     &self.media_processor,
                     &self.language_detector,
                     &self.config,
-                ).await {
+                )
+                .await
+                {
                     Ok(()) => {
                         self.mark_as_processed(toot.id.clone());
                         info!("✓ Successfully processed toot: {}", toot.id);

@@ -22,10 +22,8 @@ pub async fn process_toot(
     }
 
     // Filter media that needs processing (with audio awareness)
-    let processable_media = media_processor.filter_processable_media_with_audio(
-        &toot.media_attachments,
-        config.is_audio_enabled(),
-    );
+    let processable_media = media_processor
+        .filter_processable_media_with_audio(&toot.media_attachments, config.is_audio_enabled());
 
     if processable_media.is_empty() {
         debug!(
@@ -42,7 +40,8 @@ pub async fn process_toot(
     );
 
     // Detect language for prompt selection
-    let detected_language = crate::toot_handler::processor::detect_toot_language(toot, language_detector)?;
+    let detected_language =
+        crate::toot_handler::processor::detect_toot_language(toot, language_detector)?;
     let prompt_template = language_detector
         .get_prompt_template(&detected_language)
         .map_err(AlternatorError::Language)?;
@@ -66,7 +65,10 @@ pub async fn process_toot(
         );
 
         // Check for race conditions before processing
-        if let Err(e) = crate::toot_handler::race::check_race_condition(mastodon_client, &toot.id, &media.id).await {
+        if let Err(e) =
+            crate::toot_handler::race::check_race_condition(mastodon_client, &toot.id, &media.id)
+                .await
+        {
             match e {
                 AlternatorError::Mastodon(crate::error::MastodonError::RaceConditionDetected) => {
                     info!("Race condition detected for media {}, skipping", media.id);
@@ -96,19 +98,17 @@ pub async fn process_toot(
             info!("Processing audio file: {} ({})", media.id, media.media_type);
 
             // Download original audio data for recreation
-            let original_audio_data = match media_processor
-                .download_media_for_recreation(media)
-                .await
-            {
-                Ok(data) => data,
-                Err(e) => {
-                    error!(
-                        "Failed to download audio {} for recreation: {}",
-                        media.id, e
-                    );
-                    continue;
-                }
-            };
+            let original_audio_data =
+                match media_processor.download_media_for_recreation(media).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(
+                            "Failed to download audio {} for recreation: {}",
+                            media.id, e
+                        );
+                        continue;
+                    }
+                };
 
             // Transcribe the audio to get description
             match crate::media::process_audio_for_transcript(
@@ -187,19 +187,17 @@ pub async fn process_toot(
                 "About to download video data for media: {} with type: '{}'",
                 media.id, media.media_type
             );
-            let original_video_data = match media_processor
-                .download_media_for_recreation(media)
-                .await
-            {
-                Ok(data) => data,
-                Err(e) => {
-                    error!(
-                        "Failed to download video {} for recreation: {}",
-                        media.id, e
-                    );
-                    continue;
-                }
-            };
+            let original_video_data =
+                match media_processor.download_media_for_recreation(media).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(
+                            "Failed to download video {} for recreation: {}",
+                            media.id, e
+                        );
+                        continue;
+                    }
+                };
 
             // Transcribe the video audio to get description
             match crate::media::process_video_for_transcript(
@@ -259,10 +257,7 @@ pub async fn process_toot(
 
         // Process non-audio media (images) through the existing pipeline
         // Download original image data for recreation
-        let original_image_data = match media_processor
-            .download_media_for_recreation(media)
-            .await
-        {
+        let original_image_data = match media_processor.download_media_for_recreation(media).await {
             Ok(data) => data,
             Err(e) => {
                 error!(
@@ -274,14 +269,13 @@ pub async fn process_toot(
         };
 
         // Process media for analysis (resized/optimized version)
-        let processed_media_data =
-            match media_processor.process_media_for_analysis(media).await {
-                Ok(data) => data,
-                Err(e) => {
-                    error!("Failed to process media {} for analysis: {}", media.id, e);
-                    continue; // Skip this media but continue with others
-                }
-            };
+        let processed_media_data = match media_processor.process_media_for_analysis(media).await {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to process media {} for analysis: {}", media.id, e);
+                continue; // Skip this media but continue with others
+            }
+        };
 
         prepared_media.push((media.clone(), original_image_data, processed_media_data));
     }
@@ -416,7 +410,10 @@ pub async fn process_toot(
 
 /// Detect the language of a toot with fallback handling
 #[allow(clippy::result_large_err)] // AlternatorError is large but needed for comprehensive error handling
-pub fn detect_toot_language(toot: &TootEvent, language_detector: &LanguageDetector) -> Result<String, AlternatorError> {
+pub fn detect_toot_language(
+    toot: &TootEvent,
+    language_detector: &LanguageDetector,
+) -> Result<String, AlternatorError> {
     // First, check if the toot has a language attribute
     if let Some(ref lang) = toot.language {
         if !lang.trim().is_empty() {
