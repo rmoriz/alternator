@@ -1,0 +1,56 @@
+# NVIDIA GPU Docker build with CUDA support
+FROM python:3.11-slim
+
+# Build argument to specify the target architecture
+ARG TARGETARCH
+ARG TARGETOS
+
+# Install system dependencies including FFmpeg and Python tools
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install OpenAI Whisper
+RUN pip3 install --no-cache-dir openai-whisper
+
+# Install CUDA PyTorch for NVIDIA GPUs
+RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Create app user
+RUN useradd -m -u 1001 alternator
+
+# Create directories for configuration and models
+RUN mkdir -p /app/config /app/models && chown -R alternator:alternator /app
+
+# Copy the appropriate binary based on target architecture
+# These binaries should be pre-built and available in the build context
+COPY --chown=alternator:alternator binaries/${TARGETOS}-${TARGETARCH}/alternator /usr/local/bin/alternator
+RUN chmod +x /usr/local/bin/alternator
+
+# Switch to non-root user
+USER alternator
+
+# Set working directory
+WORKDIR /app
+
+# Create volumes for configuration and models
+VOLUME ["/app/config", "/app/models"]
+
+# Environment variables for container deployment
+ENV ALTERNATOR_CONFIG_PATH=/app/config/alternator.toml
+ENV RUST_LOG=info
+# Default Whisper model cache directory (can be overridden by model_dir config)
+ENV XDG_CACHE_HOME=/app/models
+# Prefer CUDA processing
+ENV ALTERNATOR_WHISPER_DEVICE=cuda
+ENV ALTERNATOR_WHISPER_BACKEND=cuda
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD pgrep alternator || exit 1
+
+# Run the application
+ENTRYPOINT ["alternator"]
+CMD ["--config", "/app/config/alternator.toml"]

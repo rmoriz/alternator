@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Enhanced
 - **Added 5 additional languages** - Finnish, Irish Gaelic, Welsh, Romanian, and Romansh language support for AI attribution
+- **Separated Docker builds by PyTorch backend** - Reduced image sizes with specialized builds:
+  - `ghcr.io/rmoriz/alternator-cpu:latest` - CPU-only (smallest size)
+  - `ghcr.io/rmoriz/alternator-nvidia:latest` - NVIDIA GPU with CUDA
+  - `ghcr.io/rmoriz/alternator-amd:latest` - AMD GPU with ROCm
 
 ### Technical Improvements  
 - **Updated to glibc build system** - Replaced musl static binaries with glibc for better compatibility and performance
