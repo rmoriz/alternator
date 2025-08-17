@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, glibc ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ main, develop, glibc ]
+    branches: [ '**' ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -80,7 +80,7 @@ jobs:
     name: Build Linux Binaries
     runs-on: ubuntu-latest
     needs: [test, security-audit]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/glibc')
+    if: github.event_name == 'push'
     strategy:
       matrix:
         include:
@@ -128,7 +128,7 @@ jobs:
     name: Build macOS Binaries
     runs-on: macos-latest
     needs: [test, security-audit]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/glibc')
+    if: github.event_name == 'push'
     strategy:
       matrix:
         include:
