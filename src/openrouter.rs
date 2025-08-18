@@ -302,6 +302,13 @@ impl OpenRouterClient {
         })?;
 
         // Log the complete OpenRouter response verbatim for debugging
+        info!("=== OpenRouter Response Debug ===");
+        info!("Status: {}", status);
+        info!("Headers: {:#?}", headers);
+        info!("Response Body:");
+        info!("{}", response_text);
+        info!("=== End OpenRouter Response Debug ===");
+
         debug!(
             "OpenRouter API response (status: {}): {}",
             status, response_text
@@ -605,6 +612,33 @@ impl OpenRouterClient {
                 max_tokens: None,
             }),
         };
+
+        // Log the complete request for debugging
+        info!("=== OpenRouter Request Debug ===");
+        info!("URL: {}/chat/completions", self.base_url());
+        info!("Headers:");
+        info!(
+            "  Authorization: Bearer {}",
+            if self.config.api_key.len() > 10 {
+                format!(
+                    "{}...{}",
+                    &self.config.api_key[..4],
+                    &self.config.api_key[self.config.api_key.len() - 4..]
+                )
+            } else {
+                "[REDACTED]".to_string()
+            }
+        );
+        info!("  Content-Type: application/json");
+        info!("  HTTP-Referer: https://github.com/rmoriz/alternator");
+        info!("  X-Title: Alternator - Mastodon Media Describer");
+        info!("Request Body:");
+        info!(
+            "{}",
+            serde_json::to_string_pretty(&request)
+                .unwrap_or_else(|_| "Failed to serialize request".to_string())
+        );
+        info!("=== End OpenRouter Request Debug ===");
 
         let response: ImageDescriptionResponse = self
             .api_request_with_retry(

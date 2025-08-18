@@ -247,6 +247,11 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             cmd.env("CUDA_VISIBLE_DEVICES", "0");
         }
 
+        info!("=== Whisper CLI Command Debug ===");
+        info!("Command: {:?} {:?}", cmd.get_program(), cmd.get_args());
+        info!("Environment: {:?}", cmd.get_envs().collect::<Vec<_>>());
+        info!("=== End Whisper CLI Command Debug ===");
+
         let output = tokio::task::spawn_blocking(move || cmd.output())
             .await
             .map_err(|e| {
@@ -255,6 +260,12 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             .map_err(|e| {
                 MediaError::ProcessingFailed(format!("Whisper CLI execution failed: {}", e))
             })?;
+
+        info!("=== Whisper CLI Result Debug ===");
+        info!("Exit Status: {}", output.status);
+        info!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        info!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        info!("=== End Whisper CLI Result Debug ===");
 
         if !output.status.success() {
             return Err(MediaError::ProcessingFailed(format!(
@@ -279,6 +290,19 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             )
             .with_extension("txt");
 
+        info!("Looking for transcript file: {}", transcript_file.display());
+        
+        // List all files in output directory for debugging
+        if let Ok(mut entries) = tokio::fs::read_dir(&output_dir).await {
+            info!("=== Output Directory Contents ===");
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(metadata) = entry.metadata().await {
+                    info!("File: {:?}, Size: {} bytes", entry.file_name(), metadata.len());
+                }
+            }
+            info!("=== End Output Directory Contents ===");
+        }
+
         if !transcript_file.exists() {
             return Err(MediaError::ProcessingFailed(format!(
                 "Transcript file not found: {}",
@@ -289,6 +313,12 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
         let transcript = fs::read_to_string(&transcript_file).await.map_err(|e| {
             MediaError::ProcessingFailed(format!("Failed to read transcript file: {}", e))
         })?;
+
+        info!("=== Whisper Transcript Content ===");
+        info!("File: {}", transcript_file.display());
+        info!("Size: {} characters", transcript.len());
+        info!("Content:\n{}", transcript);
+        info!("=== End Whisper Transcript Content ===");
 
         // Clean up output files
         let _ = fs::remove_file(&transcript_file).await;
