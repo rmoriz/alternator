@@ -345,13 +345,12 @@ async fn transcribe_wav_audio(
         transcript
     };
 
+    // Handle videos without speech (silent videos, music-only, etc.)
     if transcript.is_empty() {
-        return Err(MediaError::ProcessingFailed(
-            "No transcribable speech found in video".to_string(),
-        ));
+        Ok("Video content without detectable speech".to_string())
+    } else {
+        Ok(transcript)
     }
-
-    Ok(transcript)
 }
 
 /// Load WAV file as f32 PCM data for Whisper processing

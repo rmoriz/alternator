@@ -291,13 +291,17 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             .with_extension("txt");
 
         info!("Looking for transcript file: {}", transcript_file.display());
-        
+
         // List all files in output directory for debugging
         if let Ok(mut entries) = tokio::fs::read_dir(&output_dir).await {
             info!("=== Output Directory Contents ===");
             while let Ok(Some(entry)) = entries.next_entry().await {
                 if let Ok(metadata) = entry.metadata().await {
-                    info!("File: {:?}, Size: {} bytes", entry.file_name(), metadata.len());
+                    info!(
+                        "File: {:?}, Size: {} bytes",
+                        entry.file_name(),
+                        metadata.len()
+                    );
                 }
             }
             info!("=== End Output Directory Contents ===");

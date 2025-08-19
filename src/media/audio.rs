@@ -254,13 +254,12 @@ async fn transcribe_audio_with_whisper_cli(
         transcript
     };
 
+    // Handle audio without speech (instrumental music, ambient sounds, etc.)
     if transcript.is_empty() {
-        return Err(MediaError::ProcessingFailed(
-            "No transcribable speech found in audio".to_string(),
-        ));
+        Ok("Audio content without detectable speech".to_string())
+    } else {
+        Ok(transcript)
     }
-
-    Ok(transcript)
 }
 
 /// Summarize a long transcript using OpenRouter LLM with fallback
