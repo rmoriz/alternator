@@ -601,6 +601,7 @@ async fn test_toot_processing_race_condition_handling() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test that the media processor identifies this as processable
@@ -712,6 +713,7 @@ async fn test_empty_message_with_media_behavior() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test with HTML-only content (also effectively empty)
@@ -746,6 +748,7 @@ async fn test_empty_message_with_media_behavior() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test media processor identifies these as processable
@@ -985,6 +988,7 @@ async fn test_audio_format_support() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test with default configuration (should now include audio formats)
@@ -1053,6 +1057,7 @@ async fn test_audio_format_support() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     let processable_specific =

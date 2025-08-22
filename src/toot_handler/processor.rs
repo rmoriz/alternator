@@ -15,9 +15,60 @@ pub async fn process_toot(
     language_detector: &LanguageDetector,
     config: &RuntimeConfig,
 ) -> Result<(), AlternatorError> {
+    process_toot_internal(
+        toot,
+        mastodon_client,
+        openrouter_client,
+        media_processor,
+        language_detector,
+        config,
+        false,
+    )
+    .await
+}
+
+/// Process an edited toot - focus on new/changed media without descriptions
+pub async fn process_edited_toot(
+    toot: &TootEvent,
+    mastodon_client: &MastodonClient,
+    openrouter_client: &OpenRouterClient,
+    media_processor: &MediaProcessor,
+    language_detector: &LanguageDetector,
+    config: &RuntimeConfig,
+) -> Result<(), AlternatorError> {
+    info!(
+        "Processing edited toot {} - checking for new media without descriptions",
+        toot.id
+    );
+    process_toot_internal(
+        toot,
+        mastodon_client,
+        openrouter_client,
+        media_processor,
+        language_detector,
+        config,
+        true,
+    )
+    .await
+}
+
+/// Internal implementation for processing toots
+async fn process_toot_internal(
+    toot: &TootEvent,
+    mastodon_client: &MastodonClient,
+    openrouter_client: &OpenRouterClient,
+    media_processor: &MediaProcessor,
+    language_detector: &LanguageDetector,
+    config: &RuntimeConfig,
+    is_edit: bool,
+) -> Result<(), AlternatorError> {
     // Check if toot has media attachments
     if toot.media_attachments.is_empty() {
-        debug!("Toot {} has no media attachments, skipping", toot.id);
+        debug!(
+            "{} {} has no media attachments, skipping",
+            if is_edit { "Edit" } else { "Toot" },
+            toot.id
+        );
         return Ok(());
     }
 
@@ -27,15 +78,17 @@ pub async fn process_toot(
 
     if processable_media.is_empty() {
         debug!(
-            "Toot {} has no processable media (all have descriptions or unsupported types)",
+            "{} {} has no processable media (all have descriptions or unsupported types)",
+            if is_edit { "Edit" } else { "Toot" },
             toot.id
         );
         return Ok(());
     }
 
     info!(
-        "Found {} processable media attachments in toot {}",
+        "Found {} processable media attachments in {} {}",
         processable_media.len(),
+        if is_edit { "edit" } else { "toot" },
         toot.id
     );
 
@@ -382,27 +435,35 @@ pub async fn process_toot(
         {
             Ok(()) => {
                 info!(
-                    "✓ Successfully recreated {} media attachments for toot: {}",
+                    "✓ Successfully recreated {} media attachments for {}: {}",
                     media_recreations.len(),
+                    if is_edit { "edit" } else { "toot" },
                     toot.id
                 );
             }
             Err(AlternatorError::Mastodon(crate::error::MastodonError::RaceConditionDetected)) => {
                 info!(
-                    "Race condition detected during media recreation for toot {}, operation aborted",
+                    "Race condition detected during media recreation for {} {}, operation aborted",
+                    if is_edit { "edit" } else { "toot" },
                     toot.id
                 );
             }
             Err(e) => {
                 error!(
-                    "Failed to recreate media attachments for toot {}: {}",
-                    toot.id, e
+                    "Failed to recreate media attachments for {} {}: {}",
+                    if is_edit { "edit" } else { "toot" },
+                    toot.id,
+                    e
                 );
                 return Err(e);
             }
         }
     } else {
-        info!("No media attachments to recreate for toot {}", toot.id);
+        info!(
+            "No media attachments to recreate for {} {}",
+            if is_edit { "edit" } else { "toot" },
+            toot.id
+        );
     }
 
     Ok(())

@@ -16,6 +16,7 @@ pub struct TootStreamHandler {
     media_processor: MediaProcessor,
     language_detector: LanguageDetector,
     processed_toots: HashSet<String>,
+    processed_edits: HashSet<String>,
     config: RuntimeConfig,
 }
 
@@ -34,6 +35,7 @@ impl TootStreamHandler {
             media_processor,
             language_detector,
             processed_toots: HashSet::new(),
+            processed_edits: HashSet::new(),
             config,
         }
     }
@@ -84,56 +86,114 @@ impl TootStreamHandler {
         match self.mastodon_client.listen().await {
             Ok(Some(toot)) => {
                 // Verify this is from the authenticated user (already done in MastodonClient)
-                // Check for duplicate processing
-                if self.is_already_processed(&toot.id) {
-                    debug!("Skipping already processed toot: {}", toot.id);
-                    return Ok(());
-                }
 
-                info!(
-                    "Processing toot: {} (media: {})",
-                    toot.id,
-                    toot.media_attachments.len()
-                );
-
-                // Process the toot
-                match processor::process_toot(
-                    &toot,
-                    &self.mastodon_client,
-                    &self.openrouter_client,
-                    &self.media_processor,
-                    &self.language_detector,
-                    &self.config,
-                )
-                .await
-                {
-                    Ok(()) => {
-                        self.mark_as_processed(toot.id.clone());
-                        info!("✓ Successfully processed toot: {}", toot.id);
+                if toot.is_edit {
+                    // Handle edit events with separate deduplication
+                    if self.is_edit_already_processed(&toot.id) {
+                        debug!("Skipping already processed edit: {}", toot.id);
+                        return Ok(());
                     }
-                    Err(e) => {
-                        // Log error but continue processing other toots
-                        error!("Failed to process toot {}: {}", toot.id, e);
 
-                        // Still mark as processed to avoid retry loops for non-recoverable errors
-                        self.mark_as_processed(toot.id.clone());
+                    info!(
+                        "Processing edited toot: {} (media: {})",
+                        toot.id,
+                        toot.media_attachments.len()
+                    );
 
-                        // Return error for recoverable issues that should be handled at higher level
-                        match &e {
-                            AlternatorError::Mastodon(MastodonError::RateLimitExceeded {
-                                ..
-                            })
-                            | AlternatorError::OpenRouter(
-                                crate::error::OpenRouterError::RateLimitExceeded { .. },
-                            ) => {
-                                return Err(e);
+                    // Process the edited toot
+                    match processor::process_edited_toot(
+                        &toot,
+                        &self.mastodon_client,
+                        &self.openrouter_client,
+                        &self.media_processor,
+                        &self.language_detector,
+                        &self.config,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            self.mark_edit_as_processed(toot.id.clone());
+                            info!("✓ Successfully processed edited toot: {}", toot.id);
+                        }
+                        Err(e) => {
+                            // Log error but continue processing other toots
+                            error!("Failed to process edited toot {}: {}", toot.id, e);
+
+                            // Still mark as processed to avoid retry loops for non-recoverable errors
+                            self.mark_edit_as_processed(toot.id.clone());
+
+                            // Return error for recoverable issues that should be handled at higher level
+                            match &e {
+                                AlternatorError::Mastodon(MastodonError::RateLimitExceeded {
+                                    ..
+                                })
+                                | AlternatorError::OpenRouter(
+                                    crate::error::OpenRouterError::RateLimitExceeded { .. },
+                                ) => {
+                                    return Err(e);
+                                }
+                                _ => {
+                                    // For other errors, log and continue
+                                    warn!(
+                                        "Non-recoverable error processing edited toot {}, continuing: {}",
+                                        toot.id, e
+                                    );
+                                }
                             }
-                            _ => {
-                                // For other errors, log and continue
-                                warn!(
-                                    "Non-recoverable error processing toot {}, continuing: {}",
-                                    toot.id, e
-                                );
+                        }
+                    }
+                } else {
+                    // Handle new toot events with existing logic
+                    if self.is_already_processed(&toot.id) {
+                        debug!("Skipping already processed toot: {}", toot.id);
+                        return Ok(());
+                    }
+
+                    info!(
+                        "Processing toot: {} (media: {})",
+                        toot.id,
+                        toot.media_attachments.len()
+                    );
+
+                    // Process the toot
+                    match processor::process_toot(
+                        &toot,
+                        &self.mastodon_client,
+                        &self.openrouter_client,
+                        &self.media_processor,
+                        &self.language_detector,
+                        &self.config,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            self.mark_as_processed(toot.id.clone());
+                            info!("✓ Successfully processed toot: {}", toot.id);
+                        }
+                        Err(e) => {
+                            // Log error but continue processing other toots
+                            error!("Failed to process toot {}: {}", toot.id, e);
+
+                            // Still mark as processed to avoid retry loops for non-recoverable errors
+                            self.mark_as_processed(toot.id.clone());
+
+                            // Return error for recoverable issues that should be handled at higher level
+                            match &e {
+                                AlternatorError::Mastodon(MastodonError::RateLimitExceeded {
+                                    ..
+                                })
+                                | AlternatorError::OpenRouter(
+                                    crate::error::OpenRouterError::RateLimitExceeded { .. },
+                                ) => {
+                                    return Err(e);
+                                }
+                                _ => {
+                                    // For other errors, log and continue
+                                    warn!(
+                                        "Non-recoverable error processing toot {}, continuing: {}",
+                                        toot.id, e
+                                    );
+                                }
                             }
                         }
                     }
@@ -173,6 +233,31 @@ impl TootStreamHandler {
             debug!(
                 "Cleaned up processed toots cache, now contains {} entries",
                 self.processed_toots.len()
+            );
+        }
+    }
+
+    /// Check if an edit has already been processed
+    fn is_edit_already_processed(&self, toot_id: &str) -> bool {
+        self.processed_edits.contains(toot_id)
+    }
+
+    /// Mark an edit as processed to prevent duplicate processing
+    fn mark_edit_as_processed(&mut self, toot_id: String) {
+        self.processed_edits.insert(toot_id);
+
+        // Prevent memory growth by limiting the size of processed edits set
+        if self.processed_edits.len() > 10000 {
+            // Remove oldest entries (this is a simple approach, could be improved with LRU)
+            let excess = self.processed_edits.len() - 5000;
+            let to_remove: Vec<String> =
+                self.processed_edits.iter().take(excess).cloned().collect();
+            for id in to_remove {
+                self.processed_edits.remove(&id);
+            }
+            debug!(
+                "Cleaned up processed edits cache, now contains {} entries",
+                self.processed_edits.len()
             );
         }
     }
