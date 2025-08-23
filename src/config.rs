@@ -19,6 +19,10 @@ fn default_openrouter_vision_fallback_model() -> String {
     "google/gemma-3-27b-it:free".to_string()
 }
 
+fn default_openrouter_text_fallback_model() -> String {
+    "moonshotai/kimi-k2:free".to_string()
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("IO error: {0}")]
@@ -92,6 +96,8 @@ pub struct OpenRouterConfig {
     pub vision_fallback_model: String,
     #[serde(default = "default_openrouter_text_model")]
     pub text_model: String,
+    #[serde(default = "default_openrouter_text_fallback_model")]
+    pub text_fallback_model: String,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
 }
@@ -234,6 +240,7 @@ impl Config {
                     vision_model: default_openrouter_vision_model(),
                     vision_fallback_model: default_openrouter_vision_fallback_model(),
                     text_model: default_openrouter_text_model(),
+                    text_fallback_model: default_openrouter_text_fallback_model(),
                     base_url: None,
                     max_tokens: Some(1500),
                 },
@@ -332,6 +339,9 @@ impl Config {
         }
         if let Ok(text_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_MODEL") {
             self.openrouter.text_model = text_model;
+        }
+        if let Ok(text_fallback_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL") {
+            self.openrouter.text_fallback_model = text_fallback_model;
         }
         if let Ok(base_url) = env::var("ALTERNATOR_OPENROUTER_BASE_URL") {
             self.openrouter.base_url = Some(base_url);
@@ -496,6 +506,13 @@ impl Config {
             ));
         }
 
+        if self.openrouter.text_fallback_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.text_fallback_model or ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL"
+                    .to_string(),
+            ));
+        }
+
         // Validate balance check_time format if provided
         if let Some(ref balance) = self.balance {
             if let Some(ref check_time) = balance.check_time {
@@ -578,6 +595,12 @@ impl Config {
     pub fn text_model(&self) -> &str {
         &self.openrouter.text_model
     }
+
+    /// Get the fallback model to use for text tasks when the primary fails
+    #[allow(dead_code)]
+    pub fn text_fallback_model(&self) -> &str {
+        &self.openrouter.text_fallback_model
+    }
 }
 
 #[cfg(test)]
@@ -645,6 +668,7 @@ mod tests {
                 vision_model: "vision-model".to_string(),
                 vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -676,6 +700,7 @@ mod tests {
                 vision_model: "vision-model".to_string(),
                 vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -717,6 +742,7 @@ mod tests {
                 vision_model: String::new(),
                 vision_fallback_model: String::new(),
                 text_model: String::new(),
+                text_fallback_model: String::new(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -814,6 +840,7 @@ level = "info"
                 vision_model: "vision-model".to_string(),
                 vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },

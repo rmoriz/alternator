@@ -454,6 +454,7 @@ mod tests {
             vision_model: "test-vision-model".to_string(),
             vision_fallback_model: "test-vision-fallback-model".to_string(),
             text_model: "test-text-model".to_string(),
+            text_fallback_model: "test-text-fallback-model".to_string(),
             base_url: Some("https://test.example.com".to_string()),
             max_tokens: Some(1500),
         };

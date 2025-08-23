@@ -63,6 +63,15 @@ vision_fallback_model = "google/gemma-3-27b-it:free"
 # - "anthropic/claude-3-haiku" (fast and efficient, paid)
 text_model = "tngtech/deepseek-r1t2-chimera:free"
 
+# Fallback AI model for text tasks when the primary text model fails
+# This model will be used automatically if the primary text model encounters provider errors
+# RECOMMENDED TEXT FALLBACK MODELS (should be different from text_model):
+# - "moonshotai/kimi-k2:free" (reliable free text model for summarization)
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent fallback text model)
+# - "meta-llama/llama-3.1-8b-instruct:free" (Meta's stable free text model)
+# - "gryphe/mythomist-7b:free" (good fallback for summarization)
+text_fallback_model = "moonshotai/kimi-k2:free"
+
 # OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
 base_url = "https://openrouter.ai/api/v1"
 
@@ -184,6 +193,7 @@ preload = true
 # ALTERNATOR_OPENROUTER_VISION_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
 # ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL=google/gemma-3-27b-it:free
 # ALTERNATOR_OPENROUTER_TEXT_MODEL=tngtech/deepseek-r1t2-chimera:free
+# ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL=moonshotai/kimi-k2:free
 # ALTERNATOR_OPENROUTER_MAX_TOKENS=200
 # ALTERNATOR_MEDIA_MAX_SIZE_MB=10
 # ALTERNATOR_MEDIA_MAX_AUDIO_SIZE_MB=50

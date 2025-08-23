@@ -760,8 +760,34 @@ impl OpenRouterClient {
         Ok(final_description)
     }
 
-    /// Process text using OpenRouter API (for transcript summarization)
+    /// Process text using OpenRouter API with fallback support (for transcript summarization)
     pub async fn process_text(&self, prompt: &str) -> Result<String, OpenRouterError> {
+        // Try primary text model first
+        match self
+            .process_text_with_model(prompt, &self.config.text_model)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(OpenRouterError::ProviderFailure { provider, message }) => {
+                warn!(
+                    "Primary text model {} failed (Provider: {}): {}. Trying fallback model {}",
+                    self.config.text_model, provider, message, self.config.text_fallback_model
+                );
+
+                // Try fallback model
+                self.process_text_with_model(prompt, &self.config.text_fallback_model)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Process text using a specific model
+    async fn process_text_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<String, OpenRouterError> {
         // Validate input parameters
         if prompt.trim().is_empty() {
             return Err(OpenRouterError::InvalidResponse(
@@ -769,11 +795,11 @@ impl OpenRouterClient {
             ));
         }
 
-        debug!("Processing text using model: {}", self.config.text_model);
+        debug!("Processing text using model: {}", model);
 
         // Build the request for text processing
         let request = serde_json::json!({
-            "model": self.config.text_model,
+            "model": model,
             "messages": [
                 {
                     "role": "user",
@@ -1041,6 +1067,7 @@ mod tests {
             vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
             text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            text_fallback_model: "moonshotai/kimi-k2:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }
@@ -1452,6 +1479,7 @@ mod tests {
             vision_model: "test-vision-model".to_string(),
             vision_fallback_model: "test-vision-fallback-model".to_string(),
             text_model: "test-text-model".to_string(),
+            text_fallback_model: "test-text-fallback-model".to_string(),
             base_url: None,
             max_tokens: None,
         };
@@ -1812,6 +1840,7 @@ mod tests {
             vision_model: "vision-model".to_string(),
             vision_fallback_model: "fallback-vision-model".to_string(),
             text_model: "text-model".to_string(),
+            text_fallback_model: "fallback-text-model".to_string(),
             base_url: None,
             max_tokens: None,
         };
@@ -1823,6 +1852,28 @@ mod tests {
         assert_eq!(client.config.vision_model, "vision-model");
         assert_eq!(client.config.vision_fallback_model, "fallback-vision-model");
         assert_eq!(client.config.text_model, "text-model");
+        assert_eq!(client.config.text_fallback_model, "fallback-text-model");
+    }
+
+    #[test]
+    fn test_text_fallback_functionality() {
+        // Test that the text fallback models are correctly configured
+        let config = OpenRouterConfig {
+            api_key: "test".to_string(),
+            model: "general-model".to_string(),
+            vision_model: "vision-model".to_string(),
+            vision_fallback_model: "fallback-vision-model".to_string(),
+            text_model: "text-model".to_string(),
+            text_fallback_model: "fallback-text-model".to_string(),
+            base_url: None,
+            max_tokens: None,
+        };
+
+        let client = OpenRouterClient::new(config);
+
+        // Verify that the correct text models are configured
+        assert_eq!(client.config.text_model, "text-model");
+        assert_eq!(client.config.text_fallback_model, "fallback-text-model");
     }
 
     #[test]
