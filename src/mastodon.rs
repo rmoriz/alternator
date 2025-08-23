@@ -1006,12 +1006,37 @@ impl MastodonStream for MastodonClient {
         }
 
         debug!(
-            "Recreating {} media attachments for toot: {}",
+            "Recreating {} media attachments for toot: {} while preserving existing ones with descriptions",
             media_recreations.len(),
             toot_id
         );
 
-        // Step 1: Create new media attachments with descriptions
+        // Step 1: Get current toot to identify existing media with descriptions
+        let current_toot = self.get_toot(toot_id).await?;
+
+        // Step 2: Identify media that should be preserved (have descriptions and not in replacement list)
+        let preserved_media_ids: Vec<String> = current_toot
+            .media_attachments
+            .iter()
+            .filter(|media| {
+                // Keep media that has a description AND is not being replaced
+                let has_description = media
+                    .description
+                    .as_ref()
+                    .is_some_and(|desc| !desc.trim().is_empty());
+                let not_being_replaced = !original_media_ids.contains(&media.id);
+                has_description && not_being_replaced
+            })
+            .map(|media| media.id.clone())
+            .collect();
+
+        debug!(
+            "Preserving {} existing media attachments with descriptions: {:?}",
+            preserved_media_ids.len(),
+            preserved_media_ids
+        );
+
+        // Step 3: Create new media attachments with descriptions
         let mut new_media_ids = Vec::new();
         for (index, recreation) in media_recreations.iter().enumerate() {
             match self
@@ -1048,14 +1073,25 @@ impl MastodonStream for MastodonClient {
             }
         }
 
-        // Step 2: Wait for media processing and update the status with retry logic
-        self.update_status_with_media_retry(toot_id, new_media_ids, media_recreations.len())
+        // Step 4: Combine preserved and new media IDs
+        let mut all_media_ids = preserved_media_ids.clone();
+        all_media_ids.extend(new_media_ids);
+
+        debug!(
+            "Final media list contains {} attachments: {} preserved + {} new",
+            all_media_ids.len(),
+            preserved_media_ids.len(),
+            media_recreations.len()
+        );
+
+        // Step 5: Wait for media processing and update the status with all media
+        self.update_status_with_media_retry(toot_id, all_media_ids, media_recreations.len())
             .await?;
 
-        // Schedule non-blocking cleanup of orphaned original media attachments
+        // Step 6: Schedule non-blocking cleanup of replaced original media attachments
         if !original_media_ids.is_empty() {
             debug!(
-                "Scheduling delayed cleanup of {} original media attachments",
+                "Scheduling delayed cleanup of {} replaced media attachments",
                 original_media_ids.len()
             );
             self.spawn_cleanup_task(original_media_ids);
