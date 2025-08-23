@@ -1,7 +1,7 @@
 use crate::config::RuntimeConfig;
 use crate::error::{AlternatorError, MastodonError};
 use crate::language::LanguageDetector;
-use crate::mastodon::{MastodonClient, MastodonStream};
+use crate::mastodon::{MastodonClient, MastodonStream, TootEvent};
 use crate::media::MediaProcessor;
 use crate::openrouter::OpenRouterClient;
 use crate::toot_handler::processor;
@@ -88,9 +88,13 @@ impl TootStreamHandler {
                 // Verify this is from the authenticated user (already done in MastodonClient)
 
                 if toot.is_edit {
-                    // Handle edit events with separate deduplication
-                    if self.is_edit_already_processed(&toot.id) {
-                        debug!("Skipping already processed edit: {}", toot.id);
+                    // Handle edit events with content-aware deduplication
+                    if self.is_edit_already_processed(&toot) {
+                        debug!(
+                            "Skipping already processed edit: {} (media: {})",
+                            toot.id,
+                            toot.media_attachments.len()
+                        );
                         return Ok(());
                     }
 
@@ -112,7 +116,7 @@ impl TootStreamHandler {
                     .await
                     {
                         Ok(()) => {
-                            self.mark_edit_as_processed(toot.id.clone());
+                            self.mark_edit_as_processed(&toot);
                             info!("✓ Successfully processed edited toot: {}", toot.id);
                         }
                         Err(e) => {
@@ -120,7 +124,7 @@ impl TootStreamHandler {
                             error!("Failed to process edited toot {}: {}", toot.id, e);
 
                             // Still mark as processed to avoid retry loops for non-recoverable errors
-                            self.mark_edit_as_processed(toot.id.clone());
+                            self.mark_edit_as_processed(&toot);
 
                             // Return error for recoverable issues that should be handled at higher level
                             match &e {
@@ -238,13 +242,15 @@ impl TootStreamHandler {
     }
 
     /// Check if an edit has already been processed
-    fn is_edit_already_processed(&self, toot_id: &str) -> bool {
-        self.processed_edits.contains(toot_id)
+    fn is_edit_already_processed(&self, toot: &TootEvent) -> bool {
+        let edit_key = self.generate_edit_key(toot);
+        self.processed_edits.contains(&edit_key)
     }
 
     /// Mark an edit as processed to prevent duplicate processing
-    fn mark_edit_as_processed(&mut self, toot_id: String) {
-        self.processed_edits.insert(toot_id);
+    fn mark_edit_as_processed(&mut self, toot: &TootEvent) {
+        let edit_key = self.generate_edit_key(toot);
+        self.processed_edits.insert(edit_key);
 
         // Prevent memory growth by limiting the size of processed edits set
         if self.processed_edits.len() > 10000 {
@@ -260,6 +266,18 @@ impl TootStreamHandler {
                 self.processed_edits.len()
             );
         }
+    }
+
+    /// Generate a unique key for an edit based on toot ID and media attachment IDs
+    /// This ensures that adding new media to an existing toot will be processed
+    fn generate_edit_key(&self, toot: &TootEvent) -> String {
+        let mut media_ids: Vec<String> = toot
+            .media_attachments
+            .iter()
+            .map(|m| m.id.clone())
+            .collect();
+        media_ids.sort(); // Ensure consistent ordering
+        format!("{}:{}", toot.id, media_ids.join(","))
     }
 
     /// Get statistics about processed toots
