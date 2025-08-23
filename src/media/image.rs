@@ -221,9 +221,11 @@ impl ImageTransformer for ImageProcessor {
 
     fn get_optimal_format(&self, original_format: ImageFormat) -> ImageFormat {
         match original_format {
-            ImageFormat::Png => ImageFormat::Png,
-            ImageFormat::Gif => ImageFormat::Png, // Convert GIF to PNG for analysis
-            ImageFormat::WebP => ImageFormat::Png, // Convert WebP to PNG for better compatibility
+            // Convert PNG to JPEG for OpenRouter analysis to reduce file size
+            // PNG can be much larger than JPEG for photos and complex images
+            ImageFormat::Png => ImageFormat::Jpeg,
+            ImageFormat::Gif => ImageFormat::Png, // Convert GIF to PNG to preserve animation frames
+            ImageFormat::WebP => ImageFormat::Jpeg, // Convert WebP to JPEG for better compatibility
             _ => ImageFormat::Jpeg,               // Use JPEG for other formats
         }
     }
@@ -312,22 +314,22 @@ mod tests {
     fn test_image_processor_get_optimal_format() {
         let processor = ImageProcessor::with_default_config();
 
-        // PNG should stay PNG
+        // PNG should convert to JPEG for size optimization
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::Png),
-            ImageFormat::Png
+            ImageFormat::Jpeg
         ));
 
-        // GIF should convert to PNG
+        // GIF should convert to PNG to preserve animation frames
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::Gif),
             ImageFormat::Png
         ));
 
-        // WebP should convert to PNG
+        // WebP should convert to JPEG for better compatibility and size
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::WebP),
-            ImageFormat::Png
+            ImageFormat::Jpeg
         ));
 
         // JPEG should stay JPEG
