@@ -479,6 +479,7 @@ mod tests {
             api_key: "test_key".to_string(),
             model: "test_model".to_string(),
             vision_model: "test_vision_model".to_string(),
+            vision_fallback_model: "test_vision_fallback_model".to_string(),
             text_model: "test_text_model".to_string(),
             base_url: Some("https://test.openrouter.ai".to_string()),
             max_tokens: Some(150),

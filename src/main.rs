@@ -479,6 +479,7 @@ mod tests {
                 api_key: "test_key".to_string(),
                 model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                 vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
                 text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                 base_url: Some("https://openrouter.ai/api/v1".to_string()),
                 max_tokens: Some(150),

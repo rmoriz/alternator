@@ -15,6 +15,10 @@ fn default_openrouter_text_model() -> String {
     "mistralai/mistral-small-3.2-24b-instruct:free".to_string()
 }
 
+fn default_openrouter_vision_fallback_model() -> String {
+    "google/gemma-3-27b-it:free".to_string()
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("IO error: {0}")]
@@ -84,6 +88,8 @@ pub struct OpenRouterConfig {
     pub model: String,
     #[serde(default = "default_openrouter_vision_model")]
     pub vision_model: String,
+    #[serde(default = "default_openrouter_vision_fallback_model")]
+    pub vision_fallback_model: String,
     #[serde(default = "default_openrouter_text_model")]
     pub text_model: String,
     pub base_url: Option<String>,
@@ -226,6 +232,7 @@ impl Config {
                     api_key: String::new(),
                     model: default_openrouter_model(),
                     vision_model: default_openrouter_vision_model(),
+                    vision_fallback_model: default_openrouter_vision_fallback_model(),
                     text_model: default_openrouter_text_model(),
                     base_url: None,
                     max_tokens: Some(1500),
@@ -319,6 +326,9 @@ impl Config {
         }
         if let Ok(vision_model) = env::var("ALTERNATOR_OPENROUTER_VISION_MODEL") {
             self.openrouter.vision_model = vision_model;
+        }
+        if let Ok(vision_fallback_model) = env::var("ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL") {
+            self.openrouter.vision_fallback_model = vision_fallback_model;
         }
         if let Ok(text_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_MODEL") {
             self.openrouter.text_model = text_model;
@@ -473,6 +483,13 @@ impl Config {
             ));
         }
 
+        if self.openrouter.vision_fallback_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.vision_fallback_model or ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL"
+                    .to_string(),
+            ));
+        }
+
         if self.openrouter.text_model.is_empty() {
             return Err(ConfigError::MissingRequired(
                 "openrouter.text_model or ALTERNATOR_OPENROUTER_TEXT_MODEL".to_string(),
@@ -551,6 +568,12 @@ impl Config {
         &self.openrouter.vision_model
     }
 
+    /// Get the fallback model to use for vision tasks when the primary fails
+    #[allow(dead_code)]
+    pub fn vision_fallback_model(&self) -> &str {
+        &self.openrouter.vision_fallback_model
+    }
+
     #[allow(dead_code)]
     pub fn text_model(&self) -> &str {
         &self.openrouter.text_model
@@ -620,6 +643,7 @@ mod tests {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,
@@ -650,6 +674,7 @@ mod tests {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,
@@ -690,6 +715,7 @@ mod tests {
                 api_key: String::new(),
                 model: String::new(),
                 vision_model: String::new(),
+                vision_fallback_model: String::new(),
                 text_model: String::new(),
                 base_url: None,
                 max_tokens: None,
@@ -786,6 +812,7 @@ level = "info"
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
                 base_url: None,
                 max_tokens: None,

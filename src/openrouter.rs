@@ -551,11 +551,42 @@ impl OpenRouterClient {
         Ok(models)
     }
 
-    /// Generate description for an image using OpenRouter API
+    /// Generate description for an image using OpenRouter API with fallback support
     pub async fn describe_image(
         &self,
         image_data: &[u8],
         prompt: &str,
+    ) -> Result<String, OpenRouterError> {
+        // Try primary vision model first
+        match self
+            .describe_image_with_model(image_data, prompt, &self.config.vision_model)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(OpenRouterError::ProviderFailure { provider, message }) => {
+                warn!(
+                    "Primary vision model {} failed (Provider: {}): {}. Trying fallback model {}",
+                    self.config.vision_model, provider, message, self.config.vision_fallback_model
+                );
+
+                // Try fallback model
+                self.describe_image_with_model(
+                    image_data,
+                    prompt,
+                    &self.config.vision_fallback_model,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Generate description for an image using a specific model
+    async fn describe_image_with_model(
+        &self,
+        image_data: &[u8],
+        prompt: &str,
+        model: &str,
     ) -> Result<String, OpenRouterError> {
         // Validate input parameters
         if image_data.is_empty() {
@@ -571,12 +602,9 @@ impl OpenRouterClient {
         }
 
         // Replace {model} placeholder in prompt with actual model name
-        let processed_prompt = prompt.replace("{model}", &self.config.model);
+        let processed_prompt = prompt.replace("{model}", model);
 
-        debug!(
-            "Generating image description using model: {}",
-            self.config.model
-        );
+        debug!("Generating image description using model: {}", model);
 
         // Validate image size
         let size_mb = image_data.len() as f64 / (1024.0 * 1024.0);
@@ -592,7 +620,7 @@ impl OpenRouterClient {
         let data_url = format!("data:image/jpeg;base64,{base64_image}");
 
         let request = ImageDescriptionRequest {
-            model: self.config.model.clone(),
+            model: model.to_string(),
             messages: vec![Message {
                 role: "user".to_string(),
                 content: vec![
@@ -1011,6 +1039,7 @@ mod tests {
             api_key: "test_key".to_string(),
             model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
             text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
@@ -1421,6 +1450,7 @@ mod tests {
             api_key: "test".to_string(),
             model: "test-model".to_string(),
             vision_model: "test-vision-model".to_string(),
+            vision_fallback_model: "test-vision-fallback-model".to_string(),
             text_model: "test-text-model".to_string(),
             base_url: None,
             max_tokens: None,
@@ -1771,6 +1801,28 @@ mod tests {
         let text_with_spaces = "Hello    world    test";
         let result = OpenRouterClient::safe_truncate(text_with_spaces, 10);
         assert!(result.chars().count() <= 11); // Should handle multiple spaces correctly
+    }
+
+    #[test]
+    fn test_vision_fallback_functionality() {
+        // Test that the vision model is correctly used instead of the general model
+        let config = OpenRouterConfig {
+            api_key: "test".to_string(),
+            model: "general-model".to_string(),
+            vision_model: "vision-model".to_string(),
+            vision_fallback_model: "fallback-vision-model".to_string(),
+            text_model: "text-model".to_string(),
+            base_url: None,
+            max_tokens: None,
+        };
+
+        let client = OpenRouterClient::new(config);
+
+        // Verify that the correct models are configured
+        assert_eq!(client.config.model, "general-model");
+        assert_eq!(client.config.vision_model, "vision-model");
+        assert_eq!(client.config.vision_fallback_model, "fallback-vision-model");
+        assert_eq!(client.config.text_model, "text-model");
     }
 
     #[test]

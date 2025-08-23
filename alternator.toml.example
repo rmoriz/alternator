@@ -45,6 +45,14 @@ model = "mistralai/mistral-small-3.2-24b-instruct:free"
 # - "google/gemini-2.5-flash-lite" (Google's latest efficient vision model, paid)
 vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
 
+# Fallback AI model for vision tasks when the primary vision model fails
+# This model will be used automatically if the primary vision model encounters provider errors
+# RECOMMENDED FALLBACK MODELS (should be different from vision_model):
+# - "google/gemma-3-27b-it:free" (reliable free model with good vision capabilities)
+# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free alternative)
+# - "meta-llama/llama-3.2-11b-vision-instruct:free" (Meta's stable free model)
+vision_fallback_model = "google/gemma-3-27b-it:free"
+
 # AI model to use specifically for text tasks (audio transcription summarization)
 # If not set, will use the 'model' field above for backward compatibility
 # RECOMMENDED TEXT MODELS:
@@ -174,6 +182,7 @@ preload = true
 # ALTERNATOR_OPENROUTER_API_KEY=your_key
 # ALTERNATOR_OPENROUTER_MODEL=anthropic/claude-3-sonnet
 # ALTERNATOR_OPENROUTER_VISION_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
+# ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL=google/gemma-3-27b-it:free
 # ALTERNATOR_OPENROUTER_TEXT_MODEL=tngtech/deepseek-r1t2-chimera:free
 # ALTERNATOR_OPENROUTER_MAX_TOKENS=200
 # ALTERNATOR_MEDIA_MAX_SIZE_MB=10
