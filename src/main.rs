@@ -11,7 +11,6 @@ mod mastodon;
 mod media;
 mod openrouter;
 mod toot_handler;
-mod whisper;
 mod whisper_cli;
 
 use crate::config::{Config, RuntimeConfig};
@@ -34,10 +33,6 @@ struct Cli {
     /// Enable verbose logging (equivalent to --log-level debug)
     #[arg(short, long)]
     verbose: bool,
-
-    /// Download Whisper model and exit (does not start main application)
-    #[arg(long, value_name = "MODEL")]
-    download_whisper_model: Option<String>,
 }
 
 impl Cli {
@@ -173,26 +168,6 @@ async fn main() -> Result<(), AlternatorError> {
     if let Err(e) = init_logging(&config, &cli) {
         eprintln!("Failed to initialize logging: {e}");
         return Err(e);
-    }
-
-    // Handle Whisper model download command
-    if let Some(model_name) = cli.download_whisper_model {
-        info!("Whisper model download requested: {}", model_name);
-        return match crate::whisper::download_whisper_model_cli(
-            model_name,
-            config.config().whisper().clone(),
-        )
-        .await
-        {
-            Ok(()) => {
-                info!("Whisper model download completed successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("Whisper model download failed: {}", e);
-                Err(e)
-            }
-        };
     }
 
     info!("Starting Alternator v{}", env!("CARGO_PKG_VERSION"));
