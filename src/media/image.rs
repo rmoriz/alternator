@@ -187,7 +187,7 @@ impl ImageTransformer for ImageProcessor {
                 })?;
             }
             ImageFormat::Jpeg => {
-                let encoder = JpegEncoder::new_with_quality(&mut output, 75);
+                let encoder = JpegEncoder::new_with_quality(&mut output, 65);
                 resized_img.write_with_encoder(encoder).map_err(|e| {
                     MediaError::EncodingFailed(format!("Failed to encode JPEG: {e}"))
                 })?;
