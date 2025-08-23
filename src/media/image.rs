@@ -13,6 +13,10 @@ pub const SUPPORTED_IMAGE_FORMATS: &[&str] = &[
     "image/png",
     "image/gif",
     "image/webp",
+    "image/tiff",
+    "image/bmp",
+    "image/x-icon",
+    "image/avif",
 ];
 
 /// Maximum dimension for image resizing (width or height)
@@ -219,15 +223,10 @@ impl ImageTransformer for ImageProcessor {
         }
     }
 
-    fn get_optimal_format(&self, original_format: ImageFormat) -> ImageFormat {
-        match original_format {
-            // Convert PNG to JPEG for OpenRouter analysis to reduce file size
-            // PNG can be much larger than JPEG for photos and complex images
-            ImageFormat::Png => ImageFormat::Jpeg,
-            ImageFormat::Gif => ImageFormat::Png, // Convert GIF to PNG to preserve animation frames
-            ImageFormat::WebP => ImageFormat::Jpeg, // Convert WebP to JPEG for better compatibility
-            _ => ImageFormat::Jpeg,               // Use JPEG for other formats
-        }
+    fn get_optimal_format(&self, _original_format: ImageFormat) -> ImageFormat {
+        // Convert all formats to JPEG for OpenRouter analysis to reduce file size
+        // and ensure maximum compatibility
+        ImageFormat::Jpeg
     }
 }
 
@@ -259,6 +258,10 @@ mod tests {
         assert!(config.supported_formats.contains("image/png"));
         assert!(config.supported_formats.contains("image/gif"));
         assert!(config.supported_formats.contains("image/webp"));
+        assert!(config.supported_formats.contains("image/tiff"));
+        assert!(config.supported_formats.contains("image/bmp"));
+        assert!(config.supported_formats.contains("image/x-icon"));
+        assert!(config.supported_formats.contains("image/avif"));
     }
 
     #[test]
@@ -270,6 +273,10 @@ mod tests {
         assert!(processor.is_supported("image/png"));
         assert!(processor.is_supported("image/gif"));
         assert!(processor.is_supported("image/webp"));
+        assert!(processor.is_supported("image/tiff"));
+        assert!(processor.is_supported("image/bmp"));
+        assert!(processor.is_supported("image/x-icon"));
+        assert!(processor.is_supported("image/avif"));
 
         // Generic type matching (Mastodon API format)
         assert!(processor.is_supported("image"));
@@ -314,27 +321,44 @@ mod tests {
     fn test_image_processor_get_optimal_format() {
         let processor = ImageProcessor::with_default_config();
 
-        // PNG should convert to JPEG for size optimization
+        // All formats should convert to JPEG for OpenRouter optimization
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::Png),
             ImageFormat::Jpeg
         ));
 
-        // GIF should convert to PNG to preserve animation frames
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::Gif),
-            ImageFormat::Png
+            ImageFormat::Jpeg
         ));
 
-        // WebP should convert to JPEG for better compatibility and size
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::WebP),
             ImageFormat::Jpeg
         ));
 
-        // JPEG should stay JPEG
         assert!(matches!(
             processor.get_optimal_format(ImageFormat::Jpeg),
+            ImageFormat::Jpeg
+        ));
+
+        assert!(matches!(
+            processor.get_optimal_format(ImageFormat::Tiff),
+            ImageFormat::Jpeg
+        ));
+
+        assert!(matches!(
+            processor.get_optimal_format(ImageFormat::Bmp),
+            ImageFormat::Jpeg
+        ));
+
+        assert!(matches!(
+            processor.get_optimal_format(ImageFormat::Ico),
+            ImageFormat::Jpeg
+        ));
+
+        assert!(matches!(
+            processor.get_optimal_format(ImageFormat::Avif),
             ImageFormat::Jpeg
         ));
     }
@@ -377,6 +401,6 @@ mod tests {
         assert!(SUPPORTED_IMAGE_FORMATS.contains(&"image/png"));
         assert!(SUPPORTED_IMAGE_FORMATS.contains(&"image/gif"));
         assert!(SUPPORTED_IMAGE_FORMATS.contains(&"image/webp"));
-        assert_eq!(SUPPORTED_IMAGE_FORMATS.len(), 5);
+        assert_eq!(SUPPORTED_IMAGE_FORMATS.len(), 9);
     }
 }
