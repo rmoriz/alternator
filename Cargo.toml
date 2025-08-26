@@ -24,7 +24,6 @@ chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 url = "2.5"
 base64 = "0.22"
-whisper-rs = "0.14.4"
 dirs = "5.0"
 tempfile = "3.8"
 unicode-normalization = "0.1"

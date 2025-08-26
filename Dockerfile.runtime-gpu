@@ -1,4 +1,5 @@
-# Multi-stage build for optimal image size
+# Alternative Dockerfile with runtime GPU detection
+# This creates smaller base images by installing GPU support only when needed
 FROM rust:1.83-slim AS builder
 
 # Install build dependencies
@@ -22,29 +23,30 @@ COPY src/ ./src/
 # Build the application in release mode
 RUN cargo build --release
 
-# Runtime stage with Python and Whisper support
+# Runtime stage with Python and runtime GPU detection
 FROM python:3.11-slim
 
-# Install system dependencies including FFmpeg and Python tools
+# Install system dependencies including FFmpeg and GPU detection tools
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     ffmpeg \
     curl \
+    lspci \
+    pciutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenAI Whisper
+# Install OpenAI Whisper (base installation without GPU support)
 RUN pip3 install --no-cache-dir openai-whisper
-
-# Install Universal GPU Support (AMD + NVIDIA)
-# Install both CUDA and ROCm PyTorch wheels for maximum compatibility
-RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.4.2
 
 # Create app user with same UID as builder stage
 RUN useradd -m -u 1001 alternator
 
 # Create directories for configuration and models
 RUN mkdir -p /app/config /app/models && chown -R alternator:alternator /app
+
+# Copy GPU setup script
+COPY scripts/setup-gpu.sh /usr/local/bin/setup-gpu.sh
+RUN chmod +x /usr/local/bin/setup-gpu.sh
 
 # Copy binary from builder stage
 COPY --from=builder /app/target/release/alternator /usr/local/bin/alternator
@@ -65,10 +67,14 @@ ENV RUST_LOG=info
 # Default Whisper model cache directory (can be overridden by model_dir config)
 ENV XDG_CACHE_HOME=/app/models
 
+# Runtime GPU setup script will be run when container starts
+# This allows dynamic GPU support based on host hardware
+RUN echo '#!/bin/bash\nsetup-gpu.sh\nexec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD pgrep alternator || exit 1
 
-# Run the application
-ENTRYPOINT ["alternator"]
-CMD ["--config", "/app/config/alternator.toml"]
+# Run GPU setup then the application
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["alternator", "--config", "/app/config/alternator.toml"]

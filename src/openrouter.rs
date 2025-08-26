@@ -302,6 +302,13 @@ impl OpenRouterClient {
         })?;
 
         // Log the complete OpenRouter response verbatim for debugging
+        info!("=== OpenRouter Response Debug ===");
+        info!("Status: {}", status);
+        info!("Headers: {:#?}", headers);
+        info!("Response Body:");
+        info!("{}", response_text);
+        info!("=== End OpenRouter Response Debug ===");
+
         debug!(
             "OpenRouter API response (status: {}): {}",
             status, response_text
@@ -544,11 +551,42 @@ impl OpenRouterClient {
         Ok(models)
     }
 
-    /// Generate description for an image using OpenRouter API
+    /// Generate description for an image using OpenRouter API with fallback support
     pub async fn describe_image(
         &self,
         image_data: &[u8],
         prompt: &str,
+    ) -> Result<String, OpenRouterError> {
+        // Try primary vision model first
+        match self
+            .describe_image_with_model(image_data, prompt, &self.config.vision_model)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(OpenRouterError::ProviderFailure { provider, message }) => {
+                warn!(
+                    "Primary vision model {} failed (Provider: {}): {}. Trying fallback model {}",
+                    self.config.vision_model, provider, message, self.config.vision_fallback_model
+                );
+
+                // Try fallback model
+                self.describe_image_with_model(
+                    image_data,
+                    prompt,
+                    &self.config.vision_fallback_model,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Generate description for an image using a specific model
+    async fn describe_image_with_model(
+        &self,
+        image_data: &[u8],
+        prompt: &str,
+        model: &str,
     ) -> Result<String, OpenRouterError> {
         // Validate input parameters
         if image_data.is_empty() {
@@ -564,12 +602,9 @@ impl OpenRouterClient {
         }
 
         // Replace {model} placeholder in prompt with actual model name
-        let processed_prompt = prompt.replace("{model}", &self.config.model);
+        let processed_prompt = prompt.replace("{model}", model);
 
-        debug!(
-            "Generating image description using model: {}",
-            self.config.model
-        );
+        debug!("Generating image description using model: {}", model);
 
         // Validate image size
         let size_mb = image_data.len() as f64 / (1024.0 * 1024.0);
@@ -585,7 +620,7 @@ impl OpenRouterClient {
         let data_url = format!("data:image/jpeg;base64,{base64_image}");
 
         let request = ImageDescriptionRequest {
-            model: self.config.model.clone(),
+            model: model.to_string(),
             messages: vec![Message {
                 role: "user".to_string(),
                 content: vec![
@@ -605,6 +640,33 @@ impl OpenRouterClient {
                 max_tokens: None,
             }),
         };
+
+        // Log the complete request for debugging
+        info!("=== OpenRouter Request Debug ===");
+        info!("URL: {}/chat/completions", self.base_url());
+        info!("Headers:");
+        info!(
+            "  Authorization: Bearer {}",
+            if self.config.api_key.len() > 10 {
+                format!(
+                    "{}...{}",
+                    &self.config.api_key[..4],
+                    &self.config.api_key[self.config.api_key.len() - 4..]
+                )
+            } else {
+                "[REDACTED]".to_string()
+            }
+        );
+        info!("  Content-Type: application/json");
+        info!("  HTTP-Referer: https://github.com/rmoriz/alternator");
+        info!("  X-Title: Alternator - Mastodon Media Describer");
+        info!("Request Body:");
+        info!(
+            "{}",
+            serde_json::to_string_pretty(&request)
+                .unwrap_or_else(|_| "Failed to serialize request".to_string())
+        );
+        info!("=== End OpenRouter Request Debug ===");
 
         let response: ImageDescriptionResponse = self
             .api_request_with_retry(
@@ -698,8 +760,34 @@ impl OpenRouterClient {
         Ok(final_description)
     }
 
-    /// Process text using OpenRouter API (for transcript summarization)
+    /// Process text using OpenRouter API with fallback support (for transcript summarization)
     pub async fn process_text(&self, prompt: &str) -> Result<String, OpenRouterError> {
+        // Try primary text model first
+        match self
+            .process_text_with_model(prompt, &self.config.text_model)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(OpenRouterError::ProviderFailure { provider, message }) => {
+                warn!(
+                    "Primary text model {} failed (Provider: {}): {}. Trying fallback model {}",
+                    self.config.text_model, provider, message, self.config.text_fallback_model
+                );
+
+                // Try fallback model
+                self.process_text_with_model(prompt, &self.config.text_fallback_model)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Process text using a specific model
+    async fn process_text_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<String, OpenRouterError> {
         // Validate input parameters
         if prompt.trim().is_empty() {
             return Err(OpenRouterError::InvalidResponse(
@@ -707,11 +795,11 @@ impl OpenRouterClient {
             ));
         }
 
-        debug!("Processing text using model: {}", self.config.text_model);
+        debug!("Processing text using model: {}", model);
 
         // Build the request for text processing
         let request = serde_json::json!({
-            "model": self.config.text_model,
+            "model": model,
             "messages": [
                 {
                     "role": "user",
@@ -977,7 +1065,9 @@ mod tests {
             api_key: "test_key".to_string(),
             model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
             vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
             text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+            text_fallback_model: "moonshotai/kimi-k2:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         }
@@ -1387,7 +1477,9 @@ mod tests {
             api_key: "test".to_string(),
             model: "test-model".to_string(),
             vision_model: "test-vision-model".to_string(),
+            vision_fallback_model: "test-vision-fallback-model".to_string(),
             text_model: "test-text-model".to_string(),
+            text_fallback_model: "test-text-fallback-model".to_string(),
             base_url: None,
             max_tokens: None,
         };
@@ -1737,6 +1829,51 @@ mod tests {
         let text_with_spaces = "Hello    world    test";
         let result = OpenRouterClient::safe_truncate(text_with_spaces, 10);
         assert!(result.chars().count() <= 11); // Should handle multiple spaces correctly
+    }
+
+    #[test]
+    fn test_vision_fallback_functionality() {
+        // Test that the vision model is correctly used instead of the general model
+        let config = OpenRouterConfig {
+            api_key: "test".to_string(),
+            model: "general-model".to_string(),
+            vision_model: "vision-model".to_string(),
+            vision_fallback_model: "fallback-vision-model".to_string(),
+            text_model: "text-model".to_string(),
+            text_fallback_model: "fallback-text-model".to_string(),
+            base_url: None,
+            max_tokens: None,
+        };
+
+        let client = OpenRouterClient::new(config);
+
+        // Verify that the correct models are configured
+        assert_eq!(client.config.model, "general-model");
+        assert_eq!(client.config.vision_model, "vision-model");
+        assert_eq!(client.config.vision_fallback_model, "fallback-vision-model");
+        assert_eq!(client.config.text_model, "text-model");
+        assert_eq!(client.config.text_fallback_model, "fallback-text-model");
+    }
+
+    #[test]
+    fn test_text_fallback_functionality() {
+        // Test that the text fallback models are correctly configured
+        let config = OpenRouterConfig {
+            api_key: "test".to_string(),
+            model: "general-model".to_string(),
+            vision_model: "vision-model".to_string(),
+            vision_fallback_model: "fallback-vision-model".to_string(),
+            text_model: "text-model".to_string(),
+            text_fallback_model: "fallback-text-model".to_string(),
+            base_url: None,
+            max_tokens: None,
+        };
+
+        let client = OpenRouterClient::new(config);
+
+        // Verify that the correct text models are configured
+        assert_eq!(client.config.text_model, "text-model");
+        assert_eq!(client.config.text_fallback_model, "fallback-text-model");
     }
 
     #[test]

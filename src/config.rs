@@ -15,6 +15,14 @@ fn default_openrouter_text_model() -> String {
     "mistralai/mistral-small-3.2-24b-instruct:free".to_string()
 }
 
+fn default_openrouter_vision_fallback_model() -> String {
+    "google/gemma-3-27b-it:free".to_string()
+}
+
+fn default_openrouter_text_fallback_model() -> String {
+    "moonshotai/kimi-k2:free".to_string()
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("IO error: {0}")]
@@ -84,8 +92,12 @@ pub struct OpenRouterConfig {
     pub model: String,
     #[serde(default = "default_openrouter_vision_model")]
     pub vision_model: String,
+    #[serde(default = "default_openrouter_vision_fallback_model")]
+    pub vision_fallback_model: String,
     #[serde(default = "default_openrouter_text_model")]
     pub text_model: String,
+    #[serde(default = "default_openrouter_text_fallback_model")]
+    pub text_fallback_model: String,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
 }
@@ -118,6 +130,11 @@ pub struct WhisperConfig {
     pub enabled: Option<bool>,
     pub language: Option<String>,
     pub max_duration_minutes: Option<u32>,
+    // New WhisperCli-specific fields
+    pub python_executable: Option<String>,
+    pub device: Option<String>,
+    pub backend: Option<String>,
+    pub preload: Option<bool>,
 }
 
 impl Default for MediaConfig {
@@ -186,6 +203,11 @@ impl Default for WhisperConfig {
             enabled: Some(false),           // Disabled by default until user explicitly enables
             language: None,                 // Auto-detect
             max_duration_minutes: Some(10), // Skip files longer than 10 minutes
+            // WhisperCli defaults
+            python_executable: Some("python3".to_string()), // Default Python executable
+            device: None,                                   // Auto-detect GPU/CPU
+            backend: None,                                  // Auto-detect (rocm/cuda/cpu)
+            preload: Some(true),                            // Enable model preloading by default
         }
     }
 }
@@ -216,7 +238,9 @@ impl Config {
                     api_key: String::new(),
                     model: default_openrouter_model(),
                     vision_model: default_openrouter_vision_model(),
+                    vision_fallback_model: default_openrouter_vision_fallback_model(),
                     text_model: default_openrouter_text_model(),
+                    text_fallback_model: default_openrouter_text_fallback_model(),
                     base_url: None,
                     max_tokens: Some(1500),
                 },
@@ -310,8 +334,14 @@ impl Config {
         if let Ok(vision_model) = env::var("ALTERNATOR_OPENROUTER_VISION_MODEL") {
             self.openrouter.vision_model = vision_model;
         }
+        if let Ok(vision_fallback_model) = env::var("ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL") {
+            self.openrouter.vision_fallback_model = vision_fallback_model;
+        }
         if let Ok(text_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_MODEL") {
             self.openrouter.text_model = text_model;
+        }
+        if let Ok(text_fallback_model) = env::var("ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL") {
+            self.openrouter.text_fallback_model = text_fallback_model;
         }
         if let Ok(base_url) = env::var("ALTERNATOR_OPENROUTER_BASE_URL") {
             self.openrouter.base_url = Some(base_url);
@@ -407,6 +437,26 @@ impl Config {
                 )
             })?);
         }
+        if let Ok(python_executable) = env::var("ALTERNATOR_WHISPER_PYTHON_EXECUTABLE") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.python_executable = Some(python_executable);
+        }
+        if let Ok(device) = env::var("ALTERNATOR_WHISPER_DEVICE") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.device = Some(device);
+        }
+        if let Ok(backend) = env::var("ALTERNATOR_WHISPER_BACKEND") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.backend = Some(backend);
+        }
+        if let Ok(preload) = env::var("ALTERNATOR_WHISPER_PRELOAD") {
+            let whisper = self.whisper.get_or_insert_with(WhisperConfig::default);
+            whisper.preload = Some(preload.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_WHISPER_PRELOAD must be true or false".to_string(),
+                )
+            })?);
+        }
 
         Ok(())
     }
@@ -443,9 +493,23 @@ impl Config {
             ));
         }
 
+        if self.openrouter.vision_fallback_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.vision_fallback_model or ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL"
+                    .to_string(),
+            ));
+        }
+
         if self.openrouter.text_model.is_empty() {
             return Err(ConfigError::MissingRequired(
                 "openrouter.text_model or ALTERNATOR_OPENROUTER_TEXT_MODEL".to_string(),
+            ));
+        }
+
+        if self.openrouter.text_fallback_model.is_empty() {
+            return Err(ConfigError::MissingRequired(
+                "openrouter.text_fallback_model or ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL"
+                    .to_string(),
             ));
         }
 
@@ -456,6 +520,29 @@ impl Config {
                     return Err(ConfigError::InvalidValue(
                         "balance.check_time must be in HH:MM format".to_string(),
                     ));
+                }
+            }
+        }
+
+        // Validate whisper configuration
+        if let Some(ref whisper) = self.whisper {
+            if let Some(ref device) = whisper.device {
+                let valid_devices = ["auto", "cpu", "cuda", "rocm"];
+                if !valid_devices.contains(&device.as_str()) {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "whisper.device must be one of: {}",
+                        valid_devices.join(", ")
+                    )));
+                }
+            }
+
+            if let Some(ref backend) = whisper.backend {
+                let valid_backends = ["auto", "cpu", "cuda", "rocm"];
+                if !valid_backends.contains(&backend.as_str()) {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "whisper.backend must be one of: {}",
+                        valid_backends.join(", ")
+                    )));
                 }
             }
         }
@@ -498,9 +585,21 @@ impl Config {
         &self.openrouter.vision_model
     }
 
+    /// Get the fallback model to use for vision tasks when the primary fails
+    #[allow(dead_code)]
+    pub fn vision_fallback_model(&self) -> &str {
+        &self.openrouter.vision_fallback_model
+    }
+
     #[allow(dead_code)]
     pub fn text_model(&self) -> &str {
         &self.openrouter.text_model
+    }
+
+    /// Get the fallback model to use for text tasks when the primary fails
+    #[allow(dead_code)]
+    pub fn text_fallback_model(&self) -> &str {
+        &self.openrouter.text_fallback_model
     }
 }
 
@@ -567,7 +666,9 @@ mod tests {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -597,7 +698,9 @@ mod tests {
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -637,7 +740,9 @@ mod tests {
                 api_key: String::new(),
                 model: String::new(),
                 vision_model: String::new(),
+                vision_fallback_model: String::new(),
                 text_model: String::new(),
+                text_fallback_model: String::new(),
                 base_url: None,
                 max_tokens: None,
             },
@@ -733,7 +838,9 @@ level = "info"
                 api_key: "key".to_string(),
                 model: "model".to_string(),
                 vision_model: "vision-model".to_string(),
+                vision_fallback_model: "vision-fallback-model".to_string(),
                 text_model: "text-model".to_string(),
+                text_fallback_model: "text-fallback-model".to_string(),
                 base_url: None,
                 max_tokens: None,
             },

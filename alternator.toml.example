@@ -45,6 +45,14 @@ model = "mistralai/mistral-small-3.2-24b-instruct:free"
 # - "google/gemini-2.5-flash-lite" (Google's latest efficient vision model, paid)
 vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
 
+# Fallback AI model for vision tasks when the primary vision model fails
+# This model will be used automatically if the primary vision model encounters provider errors
+# RECOMMENDED FALLBACK MODELS (should be different from vision_model):
+# - "google/gemma-3-27b-it:free" (reliable free model with good vision capabilities)
+# - "qwen/qwen2.5-vl-32b-instruct:free" (powerful free alternative)
+# - "meta-llama/llama-3.2-11b-vision-instruct:free" (Meta's stable free model)
+vision_fallback_model = "google/gemma-3-27b-it:free"
+
 # AI model to use specifically for text tasks (audio transcription summarization)
 # If not set, will use the 'model' field above for backward compatibility
 # RECOMMENDED TEXT MODELS:
@@ -54,6 +62,15 @@ vision_model = "mistralai/mistral-small-3.2-24b-instruct:free"
 # - "gryphe/mythomist-7b:free" (good free model for summarization)
 # - "anthropic/claude-3-haiku" (fast and efficient, paid)
 text_model = "tngtech/deepseek-r1t2-chimera:free"
+
+# Fallback AI model for text tasks when the primary text model fails
+# This model will be used automatically if the primary text model encounters provider errors
+# RECOMMENDED TEXT FALLBACK MODELS (should be different from text_model):
+# - "moonshotai/kimi-k2:free" (reliable free text model for summarization)
+# - "mistralai/mistral-small-3.2-24b-instruct:free" (excellent fallback text model)
+# - "meta-llama/llama-3.1-8b-instruct:free" (Meta's stable free text model)
+# - "gryphe/mythomist-7b:free" (good fallback for summarization)
+text_fallback_model = "moonshotai/kimi-k2:free"
 
 # OpenRouter API base URL (optional, default: "https://openrouter.ai/api/v1")
 base_url = "https://openrouter.ai/api/v1"
@@ -141,6 +158,30 @@ model = "base"
 # Set to 0 to disable the limit (not recommended)
 max_duration_minutes = 10
 
+# Python executable path (optional, default: "python3")
+# Path to Python executable that has OpenAI Whisper installed
+# Useful if you have multiple Python versions or custom installations
+python_executable = "python3"
+
+# Device preference for Whisper processing (optional, default: auto-detect)
+# Options: "auto", "cpu", "cuda", "rocm"
+# "auto": automatically detect and use best available device
+# "cpu": force CPU processing (slower but always available)
+# "cuda": force NVIDIA GPU processing (faster, requires CUDA)
+# "rocm": force AMD GPU processing (faster, requires ROCm)
+# device = "auto"
+
+# Backend preference for Whisper processing (optional, default: auto-detect)
+# Options: "auto", "cpu", "cuda", "rocm"
+# Usually same as device, but can be different in some setups
+# backend = "auto"
+
+# Enable model preloading at startup (optional, default: true)
+# When true, Whisper models are loaded at startup for faster transcription
+# When false, models are loaded on-demand (slower first transcription)
+# Set to false to reduce memory usage if you rarely use audio transcription
+preload = true
+
 # Example of environment variable overrides:
 # You can override any configuration value using environment variables
 # with the prefix ALTERNATOR_ and uppercase section/key names:
@@ -150,7 +191,9 @@ max_duration_minutes = 10
 # ALTERNATOR_OPENROUTER_API_KEY=your_key
 # ALTERNATOR_OPENROUTER_MODEL=anthropic/claude-3-sonnet
 # ALTERNATOR_OPENROUTER_VISION_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
+# ALTERNATOR_OPENROUTER_VISION_FALLBACK_MODEL=google/gemma-3-27b-it:free
 # ALTERNATOR_OPENROUTER_TEXT_MODEL=tngtech/deepseek-r1t2-chimera:free
+# ALTERNATOR_OPENROUTER_TEXT_FALLBACK_MODEL=moonshotai/kimi-k2:free
 # ALTERNATOR_OPENROUTER_MAX_TOKENS=200
 # ALTERNATOR_MEDIA_MAX_SIZE_MB=10
 # ALTERNATOR_MEDIA_MAX_AUDIO_SIZE_MB=50
@@ -163,6 +206,10 @@ max_duration_minutes = 10
 # ALTERNATOR_WHISPER_MODEL_DIR=/custom/whisper/models
 # ALTERNATOR_WHISPER_LANGUAGE=en
 # ALTERNATOR_WHISPER_MAX_DURATION_MINUTES=15
+# ALTERNATOR_WHISPER_PYTHON_EXECUTABLE=python3
+# ALTERNATOR_WHISPER_DEVICE=auto
+# ALTERNATOR_WHISPER_BACKEND=auto
+# ALTERNATOR_WHISPER_PRELOAD=true
 #
 # Example whisper section in TOML:
 #

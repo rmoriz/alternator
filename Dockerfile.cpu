@@ -1,29 +1,9 @@
-# Multi-stage build for optimal image size
-FROM rust:1.83-slim AS builder
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create app user for security
-RUN useradd -m -u 1001 alternator
-
-# Set working directory
-WORKDIR /app
-
-# Copy dependency manifests
-COPY Cargo.toml Cargo.lock ./
-
-# Copy source code
-COPY src/ ./src/
-
-# Build the application in release mode
-RUN cargo build --release
-
-# Runtime stage with Python and Whisper support
+# CPU-only Docker build for minimal size
 FROM python:3.11-slim
+
+# Build argument to specify the target architecture
+ARG TARGETARCH
+ARG TARGETOS
 
 # Install system dependencies including FFmpeg and Python tools
 RUN apt-get update && apt-get install -y \
@@ -35,19 +15,18 @@ RUN apt-get update && apt-get install -y \
 # Install OpenAI Whisper
 RUN pip3 install --no-cache-dir openai-whisper
 
-# Install Universal GPU Support (AMD + NVIDIA)
-# Install both CUDA and ROCm PyTorch wheels for maximum compatibility
-RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.4.2
+# Install CPU-only PyTorch (much smaller)
+RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Create app user with same UID as builder stage
+# Create app user
 RUN useradd -m -u 1001 alternator
 
 # Create directories for configuration and models
 RUN mkdir -p /app/config /app/models && chown -R alternator:alternator /app
 
-# Copy binary from builder stage
-COPY --from=builder /app/target/release/alternator /usr/local/bin/alternator
+# Copy the appropriate binary based on target architecture
+# These binaries should be pre-built and available in the build context
+COPY --chown=alternator:alternator binaries/${TARGETOS}-${TARGETARCH}/alternator /usr/local/bin/alternator
 RUN chmod +x /usr/local/bin/alternator
 
 # Switch to non-root user
@@ -64,6 +43,9 @@ ENV ALTERNATOR_CONFIG_PATH=/app/config/alternator.toml
 ENV RUST_LOG=info
 # Default Whisper model cache directory (can be overridden by model_dir config)
 ENV XDG_CACHE_HOME=/app/models
+# Force CPU-only processing
+ENV ALTERNATOR_WHISPER_DEVICE=cpu
+ENV ALTERNATOR_WHISPER_BACKEND=cpu
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

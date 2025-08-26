@@ -14,8 +14,9 @@ Automatically adds descriptions to media attachments in Mastodon toots using AI-
 - **Real-time monitoring** of your Mastodon toots via WebSocket streaming
 - **AI-powered media descriptions** using OpenRouter API with multiple model options:
   - **Image descriptions** for photos, graphics, and visual content
-  - **Audio transcription** using Whisper AI for speech-to-text conversion
-  - **Video transcription** with automatic audio extraction and Whisper processing
+- **Audio transcription** using OpenAI Whisper CLI with GPU acceleration support
+- **Video transcription** with automatic audio extraction and Whisper processing
+- **Universal GPU support** - AMD ROCm and NVIDIA CUDA in a single container
 - **Multi-language support** with automatic language detection and localized prompts
 - **Race condition protection** to avoid overwriting manual edits
 - **Cost controls** with configurable token limits and balance monitoring
@@ -40,8 +41,9 @@ cp alternator.toml.example config/alternator.toml
 # [whisper]
 # enabled = true
 # model = "base"
+# device = "auto"  # GPU auto-detection (rocm/cuda/cpu)
 
-# Run with Docker (FFmpeg included)
+# Run with Docker (includes FFmpeg and GPU support)
 docker run \
   -v $(pwd)/config:/app/config \
   -v $(pwd)/whisper-models:/app/models \
@@ -78,6 +80,7 @@ text_model = "tngtech/deepseek-r1t2-chimera:free"
 [whisper]
 enabled = true
 model = "base"
+device = "auto"  # auto-detect GPU (rocm/cuda/cpu)
 ```
 
 #### 3. Install FFmpeg (Required for audio/video transcription)
@@ -172,6 +175,8 @@ docker run \
 **Docker Benefits:**
 - ✅ FFmpeg pre-installed (no manual installation needed)
 - ✅ All dependencies included (glibc, codecs, libraries)
+- ✅ Universal GPU support (AMD ROCm + NVIDIA CUDA)
+- ✅ Automatic GPU detection and optimization
 - ✅ Consistent environment across all platforms
 - ✅ Automatic updates with image tags
 - ✅ Isolated from host system
@@ -198,6 +203,8 @@ max_tokens = 200
 [whisper]
 enabled = true
 model = "base"
+device = "auto"          # auto-detect GPU (rocm/cuda/cpu)
+preload = true           # preload model at startup for faster transcription
 max_duration_minutes = 10
 
 [balance]
@@ -222,6 +229,8 @@ export ALTERNATOR_OPENROUTER_TEXT_MODEL="tngtech/deepseek-r1t2-chimera:free"
 export ALTERNATOR_WHISPER_ENABLED="true"
 export ALTERNATOR_WHISPER_MODEL="base"
 export ALTERNATOR_WHISPER_MODEL_DIR="/custom/whisper/models"
+export ALTERNATOR_WHISPER_DEVICE="auto"
+export ALTERNATOR_WHISPER_PRELOAD="true"
 export ALTERNATOR_LOG_LEVEL="debug"
 ```
 
@@ -301,10 +310,12 @@ docker run \
   -e ALTERNATOR_WHISPER_MODEL_DIR=/app/models \
   ghcr.io/rmoriz/alternator
 
-# For audio/video transcription, enable Whisper in your config:
+# For audio/video transcription with GPU acceleration:
 # [whisper]
 # enabled = true
 # model = "base"
+# device = "auto"      # GPU auto-detection (rocm/cuda/cpu)
+# preload = true       # preload model at startup
 # model_dir = "/app/models"  # Maps to ./whisper-models on host
 ```
 
@@ -394,11 +405,14 @@ Robust error handling with automatic recovery:
 
 ### Audio & Video Transcription
 
-Automatic speech-to-text for multimedia content:
+Automatic speech-to-text for multimedia content with GPU acceleration:
 
 - **Supported Audio**: MP3, WAV, M4A, OGG, FLAC, AAC
 - **Supported Video**: MP4, WebM, QuickTime, AVI, MKV, and more
-- **Whisper Integration**: Local Whisper models for offline transcription
+- **OpenAI Whisper CLI**: Python-based Whisper with GPU support
+- **Universal GPU Support**: AMD ROCm and NVIDIA CUDA in single container
+- **Automatic GPU Detection**: Runtime detection and optimization
+- **Model Preloading**: Faster transcription with startup model loading
 - **Language Detection**: Automatic language detection or manual configuration
 - **Smart Summarization**: LLM-powered transcript summarization for long content
 - **Size Limits**: Configurable file size and duration limits
@@ -471,6 +485,10 @@ Generates descriptions in the detected language of your toot:
 | `model_dir` | String | No | `"~/.alternator/models"` | Directory to store Whisper models |
 | `language` | String | No | `"auto"` | Language code for transcription or `"auto"` for detection |
 | `max_duration_minutes` | Integer | No | `10` | Maximum audio/video duration to process (minutes) |
+| `python_executable` | String | No | `"python3"` | Python executable path with OpenAI Whisper installed |
+| `device` | String | No | `"auto"` | Device preference: `auto`, `cpu`, `cuda`, `rocm` |
+| `backend` | String | No | `"auto"` | Backend preference: `auto`, `cpu`, `cuda`, `rocm` |
+| `preload` | Boolean | No | `true` | Preload model at startup for faster transcription |
 
 ## Troubleshooting
 
@@ -516,6 +534,24 @@ Error: Failed to download Whisper model
 - Check your internet connection
 - Verify disk space in model directory
 - Try downloading manually: `./alternator --download-whisper-model base`
+
+**Whisper GPU Issues**
+```
+Info: No GPU detected, using CPU backend
+```
+- This is normal if you don't have a GPU installed
+- CPU transcription works but is slower than GPU
+- For AMD GPUs, ensure ROCm drivers are installed
+- For NVIDIA GPUs, ensure CUDA drivers and nvidia-docker are installed
+
+**Model Preloading Failed**
+```
+Error: Model preloading failed
+```
+- Check if Python and OpenAI Whisper are properly installed
+- Verify the model name is valid: `tiny`, `base`, `small`, `medium`, `large`
+- Check disk space in model directory
+- Try disabling preloading: set `preload = false` in config
 
 **Balance Too Low**
 ```
@@ -580,6 +616,9 @@ A: By default: JPEG, PNG, GIF, and WebP. You can customize this in the configura
 
 **Q: What audio and video formats are supported?**
 A: Audio: MP3, WAV, M4A, OGG, FLAC, AAC. Video: MP4, WebM, QuickTime, AVI, MKV, and more. Requires FFmpeg and Whisper enabled.
+
+**Q: Does this support GPU acceleration for audio transcription?**
+A: Yes! The Docker image includes both AMD ROCm and NVIDIA CUDA support. GPU detection is automatic - just set `device = "auto"` in your Whisper config. If no GPU is detected, it falls back to CPU processing.
 
 **Q: Do I need to install anything for audio/video transcription?**
 A: Yes, you need to install FFmpeg for audio/video processing. Whisper models are downloaded automatically when needed.

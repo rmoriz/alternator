@@ -6,4 +6,4 @@ pub mod mastodon;
 pub mod media;
 pub mod openrouter;
 pub mod toot_handler;
-pub mod whisper;
+pub mod whisper_cli;

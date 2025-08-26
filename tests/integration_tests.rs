@@ -35,7 +35,9 @@ fn create_test_config() -> Config {
             api_key: "test_api_key".to_string(),
             model: "anthropic/claude-3-haiku".to_string(),
             vision_model: "anthropic/claude-3-haiku".to_string(),
+            vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
             text_model: "anthropic/claude-3-haiku".to_string(),
+            text_fallback_model: "moonshotai/kimi-k2:free".to_string(),
             base_url: Some("https://test.openrouter.ai/api/v1".to_string()),
             max_tokens: Some(150),
         },
@@ -65,6 +67,10 @@ fn create_test_config() -> Config {
             model_dir: None,
             language: None,
             max_duration_minutes: Some(10),
+            python_executable: Some("python3".to_string()),
+            device: None,
+            backend: None,
+            preload: Some(true),
         }),
     }
 }
@@ -480,7 +486,9 @@ async fn test_balance_monitoring_configuration() {
         api_key: "test_key".to_string(),
         model: "test_model".to_string(),
         vision_model: "test_vision_model".to_string(),
+        vision_fallback_model: "test_vision_fallback_model".to_string(),
         text_model: "test_text_model".to_string(),
+        text_fallback_model: "test_text_fallback_model".to_string(),
         base_url: None,
         max_tokens: Some(150),
     });
@@ -504,7 +512,9 @@ async fn test_balance_monitoring_configuration() {
         api_key: "test_key".to_string(),
         model: "test_model".to_string(),
         vision_model: "test_vision_model".to_string(),
+        vision_fallback_model: "test_vision_fallback_model".to_string(),
         text_model: "test_text_model".to_string(),
+        text_fallback_model: "test_text_fallback_model".to_string(),
         base_url: None,
         max_tokens: Some(150),
     });
@@ -597,6 +607,7 @@ async fn test_toot_processing_race_condition_handling() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test that the media processor identifies this as processable
@@ -708,6 +719,7 @@ async fn test_empty_message_with_media_behavior() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test with HTML-only content (also effectively empty)
@@ -742,6 +754,7 @@ async fn test_empty_message_with_media_behavior() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test media processor identifies these as processable
@@ -981,6 +994,7 @@ async fn test_audio_format_support() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     // Test with default configuration (should now include audio formats)
@@ -1049,6 +1063,7 @@ async fn test_audio_format_support() {
         tags: Vec::new(),
         emojis: Vec::new(),
         poll: None,
+        is_edit: false,
     };
 
     let processable_specific =

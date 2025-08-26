@@ -132,13 +132,28 @@ jobs:
         retention-days: 1
 
   build-docker:
-    name: Build Docker Image
+    name: Build Docker Images
     needs: [build-release]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - variant: cpu
+            dockerfile: Dockerfile.cpu
+            suffix: -cpu
+            description: "CPU-only build (smallest size)"
+          - variant: nvidia
+            dockerfile: Dockerfile.nvidia
+            suffix: -nvidia
+            description: "NVIDIA GPU support with CUDA"
+          - variant: amd
+            dockerfile: Dockerfile.amd
+            suffix: -amd
+            description: "AMD GPU support with ROCm"
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
@@ -174,19 +189,23 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}
+        images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
         tags: |
           type=ref,event=tag
           type=raw,value=latest
 
-    - name: Build and push Docker image
+    - name: Build and push Docker image (${{ matrix.variant }})
       uses: docker/build-push-action@v6
       with:
         context: .
-        file: ./Dockerfile.optimized
-        platforms: linux/amd64,linux/arm64
+        file: ./${{ matrix.dockerfile }}
+        platforms: ${{ matrix.variant == 'cpu' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        labels: |
+          ${{ steps.meta.outputs.labels }}
+          org.opencontainers.image.title=Alternator (${{ matrix.variant }})
+          org.opencontainers.image.description=${{ matrix.description }}
+          org.opencontainers.image.variant=${{ matrix.variant }}
+        cache-from: type=gha,scope=${{ matrix.variant }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.variant }}

@@ -11,7 +11,7 @@ mod mastodon;
 mod media;
 mod openrouter;
 mod toot_handler;
-mod whisper;
+mod whisper_cli;
 
 use crate::config::{Config, RuntimeConfig};
 use crate::error::{AlternatorError, ErrorRecovery};
@@ -33,10 +33,6 @@ struct Cli {
     /// Enable verbose logging (equivalent to --log-level debug)
     #[arg(short, long)]
     verbose: bool,
-
-    /// Download Whisper model and exit (does not start main application)
-    #[arg(long, value_name = "MODEL")]
-    download_whisper_model: Option<String>,
 }
 
 impl Cli {
@@ -172,26 +168,6 @@ async fn main() -> Result<(), AlternatorError> {
     if let Err(e) = init_logging(&config, &cli) {
         eprintln!("Failed to initialize logging: {e}");
         return Err(e);
-    }
-
-    // Handle Whisper model download command
-    if let Some(model_name) = cli.download_whisper_model {
-        info!("Whisper model download requested: {}", model_name);
-        return match crate::whisper::download_whisper_model_cli(
-            model_name,
-            config.config().whisper().clone(),
-        )
-        .await
-        {
-            Ok(()) => {
-                info!("Whisper model download completed successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("Whisper model download failed: {}", e);
-                Err(e)
-            }
-        };
     }
 
     info!("Starting Alternator v{}", env!("CARGO_PKG_VERSION"));
@@ -343,7 +319,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     Ok(())
 }
 
-/// Check if Whisper model exists and download if necessary
+/// Check Whisper model availability and preload if configured
 async fn check_whisper_model(config: &RuntimeConfig) -> Result<(), AlternatorError> {
     let whisper_config = config.config().whisper();
 
@@ -353,27 +329,30 @@ async fn check_whisper_model(config: &RuntimeConfig) -> Result<(), AlternatorErr
     }
 
     let model_name = whisper_config.model.as_deref().unwrap_or("base");
+    info!("Initializing Whisper CLI with model: {}", model_name);
 
-    // Validate model name first
-    crate::whisper::WhisperModelManager::validate_model_name(model_name)?;
-
-    let manager = crate::whisper::WhisperModelManager::new(whisper_config.clone())?;
-
-    if manager.model_exists(model_name) {
-        info!("✓ Whisper model '{}' is available", model_name);
-        return Ok(());
-    }
-
-    warn!("Whisper model '{}' not found, downloading...", model_name);
-    info!("This may take a few minutes depending on model size and network speed");
-
-    let model_path = manager.ensure_model_available(model_name).await?;
+    // Create WhisperCli instance to validate configuration
+    let whisper_cli =
+        crate::whisper_cli::WhisperCli::new(whisper_config).map_err(AlternatorError::Media)?;
 
     info!(
-        "✓ Whisper model '{}' ready at: {}",
-        model_name,
-        model_path.display()
+        "✓ Whisper CLI initialized - Model: {}, Device: {}",
+        whisper_cli.model(),
+        whisper_cli.device()
     );
+
+    // Preload model if configured to do so
+    if whisper_config.preload.unwrap_or(true) {
+        info!("Preloading Whisper model for faster transcriptions...");
+        whisper_cli
+            .preload_model()
+            .await
+            .map_err(AlternatorError::Media)?;
+        info!("✓ Whisper model preloaded successfully");
+    } else {
+        info!("Whisper model preloading disabled - models will be loaded on demand");
+    }
+
     Ok(())
 }
 
@@ -475,7 +454,9 @@ mod tests {
                 api_key: "test_key".to_string(),
                 model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
                 vision_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                vision_fallback_model: "google/gemma-3-27b-it:free".to_string(),
                 text_model: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
+                text_fallback_model: "moonshotai/kimi-k2:free".to_string(),
                 base_url: Some("https://openrouter.ai/api/v1".to_string()),
                 max_tokens: Some(150),
             },

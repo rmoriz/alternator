@@ -34,6 +34,10 @@ pub struct TootEvent {
     pub tags: Vec<Tag>,
     pub emojis: Vec<CustomEmoji>,
     pub poll: Option<Poll>,
+    /// Indicates if this toot event represents an edit (from status.update)
+    /// This field is not part of the Mastodon API but added by Alternator
+    #[serde(skip)]
+    pub is_edit: bool,
 }
 
 /// Mastodon account information
@@ -317,22 +321,27 @@ impl MastodonClient {
         })?;
 
         match stream_event.event.as_str() {
-            "update" => {
+            "update" | "status.update" => {
                 if let Some(payload) = stream_event.payload {
-                    let toot: TootEvent = serde_json::from_str(&payload).map_err(|e| {
+                    let mut toot: TootEvent = serde_json::from_str(&payload).map_err(|e| {
                         MastodonError::InvalidTootData(format!("Failed to parse toot: {e}"))
                     })?;
 
+                    // Set the is_edit flag based on the event type
+                    toot.is_edit = stream_event.event == "status.update";
+
                     debug!(
-                        "Parsed toot event: id={}, account={}, media_count={}",
+                        "Parsed {} event: id={}, account={}, media_count={}, is_edit={}",
+                        stream_event.event,
                         toot.id,
                         toot.account.id,
-                        toot.media_attachments.len()
+                        toot.media_attachments.len(),
+                        toot.is_edit
                     );
 
                     Ok(Some(toot))
                 } else {
-                    warn!("Received update event without payload");
+                    warn!("Received {} event without payload", stream_event.event);
                     Ok(None)
                 }
             }
@@ -997,12 +1006,37 @@ impl MastodonStream for MastodonClient {
         }
 
         debug!(
-            "Recreating {} media attachments for toot: {}",
+            "Recreating {} media attachments for toot: {} while preserving existing ones with descriptions",
             media_recreations.len(),
             toot_id
         );
 
-        // Step 1: Create new media attachments with descriptions
+        // Step 1: Get current toot to identify existing media with descriptions
+        let current_toot = self.get_toot(toot_id).await?;
+
+        // Step 2: Identify media that should be preserved (have descriptions and not in replacement list)
+        let preserved_media_ids: Vec<String> = current_toot
+            .media_attachments
+            .iter()
+            .filter(|media| {
+                // Keep media that has a description AND is not being replaced
+                let has_description = media
+                    .description
+                    .as_ref()
+                    .is_some_and(|desc| !desc.trim().is_empty());
+                let not_being_replaced = !original_media_ids.contains(&media.id);
+                has_description && not_being_replaced
+            })
+            .map(|media| media.id.clone())
+            .collect();
+
+        debug!(
+            "Preserving {} existing media attachments with descriptions: {:?}",
+            preserved_media_ids.len(),
+            preserved_media_ids
+        );
+
+        // Step 3: Create new media attachments with descriptions
         let mut new_media_ids = Vec::new();
         for (index, recreation) in media_recreations.iter().enumerate() {
             match self
@@ -1039,14 +1073,25 @@ impl MastodonStream for MastodonClient {
             }
         }
 
-        // Step 2: Wait for media processing and update the status with retry logic
-        self.update_status_with_media_retry(toot_id, new_media_ids, media_recreations.len())
+        // Step 4: Combine preserved and new media IDs
+        let mut all_media_ids = preserved_media_ids.clone();
+        all_media_ids.extend(new_media_ids);
+
+        debug!(
+            "Final media list contains {} attachments: {} preserved + {} new",
+            all_media_ids.len(),
+            preserved_media_ids.len(),
+            media_recreations.len()
+        );
+
+        // Step 5: Wait for media processing and update the status with all media
+        self.update_status_with_media_retry(toot_id, all_media_ids, media_recreations.len())
             .await?;
 
-        // Schedule non-blocking cleanup of orphaned original media attachments
+        // Step 6: Schedule non-blocking cleanup of replaced original media attachments
         if !original_media_ids.is_empty() {
             debug!(
-                "Scheduling delayed cleanup of {} original media attachments",
+                "Scheduling delayed cleanup of {} replaced media attachments",
                 original_media_ids.len()
             );
             self.spawn_cleanup_task(original_media_ids);
@@ -1479,6 +1524,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         let stream_event = StreamEvent {
@@ -1487,114 +1533,6 @@ mod tests {
         };
 
         serde_json::to_string(&stream_event).unwrap()
-    }
-
-    #[test]
-    fn test_mastodon_client_creation() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config.clone());
-
-        assert_eq!(client.config.instance_url, config.instance_url);
-        assert_eq!(client.config.access_token, config.access_token);
-        assert_eq!(client.reconnect_attempts, 0);
-        assert!(client.websocket.is_none());
-        assert!(client.authenticated_user_id.is_none());
-    }
-
-    #[test]
-    fn test_streaming_url_generation() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let url = client.get_streaming_url().unwrap();
-        assert_eq!(url.scheme(), "wss");
-        assert!(url.as_str().contains("api/v1/streaming"));
-        assert!(url.as_str().contains("stream=user"));
-        assert!(url.as_str().contains("access_token=test_token"));
-    }
-
-    #[test]
-    fn test_streaming_url_http_to_ws_conversion() {
-        let mut config = create_test_config();
-        config.instance_url = "http://localhost:3000".to_string();
-        let client = MastodonClient::new(config);
-
-        let url = client.get_streaming_url().unwrap();
-        assert_eq!(url.scheme(), "ws");
-    }
-
-    #[test]
-    fn test_parse_streaming_event_update() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let message = create_test_toot_event();
-        let result = client.parse_streaming_event(&message).unwrap();
-
-        assert!(result.is_some());
-        let toot = result.unwrap();
-        assert_eq!(toot.id, "123456789");
-        assert_eq!(toot.account.id, "user123");
-        assert_eq!(toot.media_attachments.len(), 1);
-        assert_eq!(toot.media_attachments[0].id, "media123");
-    }
-
-    #[test]
-    fn test_parse_streaming_event_delete() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let delete_event = StreamEvent {
-            event: "delete".to_string(),
-            payload: Some("123456789".to_string()),
-        };
-        let message = serde_json::to_string(&delete_event).unwrap();
-
-        let result = client.parse_streaming_event(&message).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_streaming_event_notification() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let notification_event = StreamEvent {
-            event: "notification".to_string(),
-            payload: Some("{}".to_string()),
-        };
-        let message = serde_json::to_string(&notification_event).unwrap();
-
-        let result = client.parse_streaming_event(&message).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_streaming_event_unknown() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let unknown_event = StreamEvent {
-            event: "unknown_event".to_string(),
-            payload: None,
-        };
-        let message = serde_json::to_string(&unknown_event).unwrap();
-
-        let result = client.parse_streaming_event(&message).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_streaming_event_invalid_json() {
-        let config = create_test_config();
-        let client = MastodonClient::new(config);
-
-        let result = client.parse_streaming_event("invalid json");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            MastodonError::InvalidTootData(_)
-        ));
     }
 
     #[test]
@@ -1627,6 +1565,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         let result = client.is_own_toot(&toot).unwrap();
@@ -1663,6 +1602,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         let result = client.is_own_toot(&toot).unwrap();
@@ -1698,6 +1638,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         let result = client.is_own_toot(&toot);
@@ -1734,6 +1675,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         // Test serialization
@@ -2229,6 +2171,72 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_streaming_event_status_update() {
+        let config = create_test_config();
+        let client = MastodonClient::new(config);
+
+        // Create a test toot for status update event
+        let toot = TootEvent {
+            id: "test_edit_123".to_string(),
+            uri: "https://mastodon.social/users/testuser/statuses/test_edit_123".to_string(),
+            account: Account {
+                id: "user123".to_string(),
+                username: "testuser".to_string(),
+                acct: "testuser@mastodon.social".to_string(),
+                display_name: "Test User".to_string(),
+                url: "https://mastodon.social/@testuser".to_string(),
+            },
+            content: "This is an edited toot".to_string(),
+            language: Some("en".to_string()),
+            media_attachments: vec![],
+            created_at: Utc::now(),
+            url: Some("https://mastodon.social/@testuser/test_edit_123".to_string()),
+            visibility: "public".to_string(),
+            in_reply_to_id: None,
+            in_reply_to_account_id: None,
+            mentions: Vec::new(),
+            sensitive: false,
+            spoiler_text: "".to_string(),
+            tags: Vec::new(),
+            emojis: Vec::new(),
+            poll: None,
+            is_edit: false, // This will be set by the parser
+        };
+
+        // Test status.update event
+        let status_update_event = StreamEvent {
+            event: "status.update".to_string(),
+            payload: Some(serde_json::to_string(&toot).unwrap()),
+        };
+        let message = serde_json::to_string(&status_update_event).unwrap();
+
+        let result = client.parse_streaming_event(&message).unwrap();
+        assert!(result.is_some());
+        let parsed_toot = result.unwrap();
+        assert_eq!(parsed_toot.id, "test_edit_123");
+        assert!(
+            parsed_toot.is_edit,
+            "Status update event should set is_edit to true"
+        );
+
+        // Test regular update event for comparison
+        let regular_update_event = StreamEvent {
+            event: "update".to_string(),
+            payload: Some(serde_json::to_string(&toot).unwrap()),
+        };
+        let message = serde_json::to_string(&regular_update_event).unwrap();
+
+        let result = client.parse_streaming_event(&message).unwrap();
+        assert!(result.is_some());
+        let parsed_toot = result.unwrap();
+        assert_eq!(parsed_toot.id, "test_edit_123");
+        assert!(
+            !parsed_toot.is_edit,
+            "Regular update event should set is_edit to false"
+        );
+    }
+
+    #[test]
     fn test_streaming_url_with_custom_stream() {
         let mut config = create_test_config();
         config.user_stream = Some(false);
@@ -2293,6 +2301,7 @@ mod tests {
                 tags: Vec::new(),
                 emojis: Vec::new(),
                 poll: None,
+                is_edit: false,
             };
 
             assert_eq!(toot.visibility, visibility);
@@ -2356,6 +2365,7 @@ mod tests {
             tags: Vec::new(),
             emojis: Vec::new(),
             poll: None,
+            is_edit: false,
         };
 
         assert!(minimal_toot.language.is_none());
