@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-08-26
+
+### Added
+- Automatic Whisper model download on startup with progress bar
+
+### Enhanced
+- Moved FFmpeg and Whisper operations to blocking thread pools for better async performance
+- Increased media processing limits (image/audio/video) and added distinct configurable size limits per media type
+
+### Technical Improvements
+- Switched from whisper-rs to standalone Whisper CLI improving CPU compatibility and enabling universal GPU (AMD/NVIDIA) usage
+- Added configurable file size limits for different media types
+- Thread safety analysis documentation added (THREAD_ANALYSIS.md)
+
+
 ### Added - OpenAI Whisper CLI Integration (Major Update)
 - **Universal GPU Support** - Single Docker container supports both AMD ROCm and NVIDIA CUDA acceleration
 - **OpenAI Whisper CLI Integration** - Migrated from whisper-rs to Python-based OpenAI Whisper CLI for better GPU support
