@@ -64,8 +64,9 @@ impl TootStreamHandler {
 
                     // Handle specific error types
                     match &e {
-                        AlternatorError::Mastodon(MastodonError::Disconnected(_) |
-                                                   MastodonError::ConnectionFailed(_)) => {
+                        AlternatorError::Mastodon(
+                            MastodonError::Disconnected(_) | MastodonError::ConnectionFailed(_),
+                        ) => {
                             warn!("Connection lost, will attempt to reconnect");
                             // The MastodonClient will handle reconnection automatically
                         }
