@@ -190,13 +190,8 @@ impl ImageTransformer for ImageProcessor {
                 // Convert RGBA to RGB if necessary for JPEG compatibility
                 let rgb_img = match resized_img.color() {
                     image::ColorType::Rgba8 | image::ColorType::Rgba16 => {
-                        // Convert RGBA to RGB by compositing onto white background
-                        let mut rgb_img = image::DynamicImage::new_rgb8(
-                            resized_img.width(),
-                            resized_img.height(),
-                        );
-                        image::imageops::overlay(&mut rgb_img, &resized_img, 0, 0);
-                        rgb_img
+                        // Convert RGBA to RGB by converting the image data
+                        DynamicImage::ImageRgb8(resized_img.to_rgb8())
                     }
                     _ => resized_img,
                 };
