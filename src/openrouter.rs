@@ -1,6 +1,7 @@
 use crate::config::OpenRouterConfig;
 use async_trait::async_trait;
 use base64::prelude::*;
+use base64::Engine;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

@@ -431,41 +431,6 @@ mod tests {
         }
     }
 
-    // Mock OpenRouter client for testing
-    #[allow(dead_code)] // Test helpers
-    struct MockOpenRouterClient {
-        balance: f64,
-        should_fail: bool,
-    }
-
-    impl MockOpenRouterClient {
-        #[allow(dead_code)] // Test helper function
-        fn new(balance: f64) -> Self {
-            Self {
-                balance,
-                should_fail: false,
-            }
-        }
-
-        #[allow(dead_code)] // Test helper function
-        fn with_failure() -> Self {
-            Self {
-                balance: 0.0,
-                should_fail: true,
-            }
-        }
-
-        #[allow(dead_code)] // Test helper function
-        async fn get_account_balance(&self) -> Result<f64, crate::error::OpenRouterError> {
-            if self.should_fail {
-                return Err(crate::error::OpenRouterError::ApiRequestFailed(
-                    "Mock failure".to_string(),
-                ));
-            }
-            Ok(self.balance)
-        }
-    }
-
     fn create_test_config() -> BalanceConfig {
         BalanceConfig {
             enabled: Some(true),
