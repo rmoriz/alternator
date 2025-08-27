@@ -411,23 +411,23 @@ impl LanguageDetector {
         indicators.insert("fr".to_string(), fr_words);
 
         // Spanish indicators
-        let mut es_words = HashMap::new();
-        es_words.insert("el".to_string(), 3.0);
-        es_words.insert("la".to_string(), 3.0);
-        es_words.insert("los".to_string(), 3.0);
-        es_words.insert("las".to_string(), 3.0);
-        es_words.insert("y".to_string(), 2.5);
-        es_words.insert("es".to_string(), 2.0);
-        es_words.insert("en".to_string(), 2.0);
-        es_words.insert("de".to_string(), 2.0);
-        es_words.insert("un".to_string(), 2.0);
-        es_words.insert("una".to_string(), 2.0);
-        es_words.insert("para".to_string(), 1.5);
-        es_words.insert("con".to_string(), 1.5);
-        es_words.insert("por".to_string(), 1.5);
-        es_words.insert("que".to_string(), 1.5);
-        es_words.insert("se".to_string(), 1.5);
-        indicators.insert("es".to_string(), es_words);
+        let mut spanish_words = HashMap::new();
+        spanish_words.insert("el".to_string(), 3.0);
+        spanish_words.insert("la".to_string(), 3.0);
+        spanish_words.insert("los".to_string(), 3.0);
+        spanish_words.insert("las".to_string(), 3.0);
+        spanish_words.insert("y".to_string(), 2.5);
+        spanish_words.insert("es".to_string(), 2.0);
+        spanish_words.insert("en".to_string(), 2.0);
+        spanish_words.insert("un".to_string(), 2.0);
+        spanish_words.insert("una".to_string(), 2.0);
+        spanish_words.insert("de".to_string(), 2.0);
+        spanish_words.insert("que".to_string(), 1.5);
+        spanish_words.insert("no".to_string(), 1.5);
+        spanish_words.insert("se".to_string(), 1.5);
+        spanish_words.insert("por".to_string(), 1.5);
+        spanish_words.insert("con".to_string(), 1.5);
+        indicators.insert("es".to_string(), spanish_words);
 
         // Italian indicators
         let mut it_words = HashMap::new();

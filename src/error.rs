@@ -76,12 +76,14 @@ pub enum MastodonError {
     InvalidTootData(String),
 
     #[error("Rate limit exceeded, retry after {retry_after} seconds")]
+    #[allow(dead_code)]
     RateLimitExceeded { retry_after: u64 },
 
     #[error("Toot not found: {toot_id}")]
     TootNotFound { toot_id: String },
 
     #[error("Media attachment not found: {media_id}")]
+    #[allow(dead_code)]
     MediaNotFound { media_id: String },
 
     #[error("User verification failed")]

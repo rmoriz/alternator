@@ -403,7 +403,7 @@ async fn process_toot_internal(
                 }
                 Err(crate::error::OpenRouterError::TokenLimitExceeded { .. }) => {
                     warn!("Token limit exceeded for media {}, skipping", media.id);
-                    continue; // Skip this media but continue with others
+                    // Skip this media but continue with others
                 }
                 Err(e) => {
                     error!(

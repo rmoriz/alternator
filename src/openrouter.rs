@@ -1,6 +1,5 @@
 use crate::config::OpenRouterConfig;
 use async_trait::async_trait;
-use base64::prelude::*;
 use base64::Engine;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
@@ -455,7 +454,6 @@ impl OpenRouterClient {
                     warn!("Rate limited, waiting {} seconds before retry", retry_after);
                     sleep(Duration::from_secs(retry_after)).await;
                     attempt += 1;
-                    continue;
                 }
                 Err(OpenRouterError::TokenLimitExceeded { .. }) => {
                     // Don't retry token limit errors - this is a configuration issue
@@ -970,7 +968,7 @@ impl MockOpenRouterClient {
                         prompt: "0.00025".to_string(),
                         completion: "0.00125".to_string(),
                     }),
-                    context_length: Some(200000),
+                    context_length: Some(200_000),
                 },
                 Model {
                     id: "mistralai/mistral-small-3.2-24b-instruct:free".to_string(),
@@ -1186,7 +1184,7 @@ mod tests {
                     "prompt": "0.00025",
                     "completion": "0.00125"
                 },
-                "context_length": 200000
+                "context_length": 200_000
             }]
         });
 
@@ -1197,7 +1195,7 @@ mod tests {
             "mistralai/mistral-small-3.2-24b-instruct:free"
         );
         assert_eq!(response.data[0].name, "Claude 3 Haiku");
-        assert_eq!(response.data[0].context_length, Some(200000));
+        assert_eq!(response.data[0].context_length, Some(200_000));
     }
 
     #[test]
@@ -1234,15 +1232,15 @@ mod tests {
     #[test]
     fn test_base64_encoding() {
         let input = b"Hello, World!";
-        let encoded = BASE64_STANDARD.encode(input);
+        let encoded = base64::prelude::BASE64_STANDARD.encode(input);
         assert_eq!(encoded, "SGVsbG8sIFdvcmxkIQ==");
 
         let input = b"A";
-        let encoded = BASE64_STANDARD.encode(input);
+        let encoded = base64::prelude::BASE64_STANDARD.encode(input);
         assert_eq!(encoded, "QQ==");
 
         let input = b"AB";
-        let encoded = BASE64_STANDARD.encode(input);
+        let encoded = base64::prelude::BASE64_STANDARD.encode(input);
         assert_eq!(encoded, "QUI=");
     }
 

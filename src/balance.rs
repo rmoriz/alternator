@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-/// Balance monitoring system for OpenRouter account
+/// Balance monitoring system for `OpenRouter` account
 pub struct BalanceMonitor {
     config: BalanceConfig,
     openrouter_client: OpenRouterClient,

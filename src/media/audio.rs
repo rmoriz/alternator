@@ -315,21 +315,19 @@ Remember: Your entire response must be in the same language as the transcript ab
                         delay
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                    continue;
-                } else {
-                    tracing::error!(
-                        "OpenRouter provider '{}' failed after {} attempts: {}",
-                        provider,
-                        MAX_RETRIES + 1,
-                        message
-                    );
-                    return Err(MediaError::ProcessingFailed(format!(
-                        "LLM summarization failed after {} retries - provider '{}' unavailable: {}",
-                        MAX_RETRIES + 1,
-                        provider,
-                        message
-                    )));
                 }
+                tracing::error!(
+                    "OpenRouter provider '{}' failed after {} attempts: {}",
+                    provider,
+                    MAX_RETRIES + 1,
+                    message
+                );
+                return Err(MediaError::ProcessingFailed(format!(
+                    "LLM summarization failed after {} retries - provider '{}' unavailable: {}",
+                    MAX_RETRIES + 1,
+                    provider,
+                    message
+                )));
             }
             Err(crate::error::OpenRouterError::RateLimitExceeded { retry_after }) => {
                 if attempt < MAX_RETRIES {
@@ -339,13 +337,12 @@ Remember: Your entire response must be in the same language as the transcript ab
                         retry_after
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(retry_after)).await;
-                    continue;
-                } else {
-                    return Err(MediaError::ProcessingFailed(format!(
-                        "LLM summarization failed - rate limited after {} attempts",
-                        MAX_RETRIES + 1
-                    )));
+
                 }
+                return Err(MediaError::ProcessingFailed(format!(
+                    "LLM summarization failed - rate limited after {} attempts",
+                    MAX_RETRIES + 1
+                )));
             }
             Err(e) => {
                 tracing::warn!("OpenRouter summarization failed: {e}");

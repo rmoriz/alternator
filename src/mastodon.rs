@@ -185,6 +185,7 @@ pub trait MastodonStream {
         media_id: &str,
         description: &str,
     ) -> Result<(), MastodonError>;
+    #[allow(dead_code)]
     async fn update_multiple_media(
         &self,
         toot_id: &str,
@@ -300,13 +301,12 @@ impl MastodonClient {
                     if self.reconnect_attempts >= max_retries {
                         error!("Max reconnection attempts ({}) exceeded", max_retries);
                         return Err(e);
-                    } else {
-                        warn!(
-                            "Reconnection attempt {} failed: {}",
-                            self.reconnect_attempts, e
-                        );
-                        // Continue the loop for next attempt
                     }
+                    warn!(
+                        "Reconnection attempt {} failed: {}",
+                        self.reconnect_attempts, e
+                    );
+                    // Continue the loop for next attempt
                 }
             }
         }
@@ -573,18 +573,14 @@ impl MastodonStream for MastodonClient {
                             if self.is_own_toot(&toot)? {
                                 debug!("Received own toot: {}", toot.id);
                                 return Ok(Some(toot));
-                            } else {
-                                debug!("Ignoring toot from other user: {}", toot.account.acct);
-                                continue;
                             }
+                            debug!("Ignoring toot from other user: {}", toot.account.acct);
                         }
                         Ok(None) => {
                             // Event was parsed but not a toot update, continue listening
-                            continue;
                         }
                         Err(e) => {
                             warn!("Failed to parse streaming event: {}", e);
-                            continue;
                         }
                     }
                 }
@@ -600,16 +596,13 @@ impl MastodonStream for MastodonClient {
                         warn!("Failed to send pong: {}", e);
                         self.websocket = None;
                         self.reconnect().await?;
-                        continue;
                     }
                 }
                 Some(Ok(Message::Pong(_))) => {
                     debug!("Received WebSocket pong");
-                    continue;
                 }
                 Some(Ok(Message::Binary(_))) => {
                     debug!("Received binary WebSocket message, ignoring");
-                    continue;
                 }
                 Some(Ok(Message::Frame(_))) => {
                     debug!("Received WebSocket frame, ignoring");
@@ -624,7 +617,6 @@ impl MastodonStream for MastodonClient {
                     warn!("WebSocket stream ended");
                     self.websocket = None;
                     self.reconnect().await?;
-                    continue;
                 }
             }
         }

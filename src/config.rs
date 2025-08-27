@@ -53,7 +53,7 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Create a runtime config with audio enabled status determined by FFmpeg availability
+    /// Create a runtime config with audio enabled status determined by `FFmpeg` availability
     pub fn new(config: Config) -> Self {
         let audio_enabled =
             crate::media::is_ffmpeg_available() && config.whisper().enabled.unwrap_or(false);
@@ -550,7 +550,7 @@ impl Config {
         Ok(())
     }
 
-    /// Get the OpenRouter base URL with default fallback
+    /// Get the `OpenRouter` base URL with default fallback
     #[allow(dead_code)] // Public API method, may be used in future
     pub fn openrouter_base_url(&self) -> &str {
         self.openrouter

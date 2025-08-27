@@ -58,5 +58,3 @@ pub async fn check_race_condition(
         }
     }
 }
-
-
