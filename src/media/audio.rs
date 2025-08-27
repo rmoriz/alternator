@@ -315,6 +315,7 @@ Remember: Your entire response must be in the same language as the transcript ab
                         delay
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    continue; // Continue to next attempt
                 }
                 tracing::error!(
                     "OpenRouter provider '{}' failed after {} attempts: {}",
@@ -330,14 +331,14 @@ Remember: Your entire response must be in the same language as the transcript ab
                 )));
             }
             Err(crate::error::OpenRouterError::RateLimitExceeded { retry_after }) => {
+                tracing::warn!(
+                    "OpenRouter rate limited (attempt {}). Waiting {} seconds...",
+                    attempt + 1,
+                    retry_after
+                );
                 if attempt < MAX_RETRIES {
-                    tracing::warn!(
-                        "OpenRouter rate limited (attempt {}). Waiting {} seconds...",
-                        attempt + 1,
-                        retry_after
-                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(retry_after)).await;
-
+                    continue; // Continue to next attempt
                 }
                 return Err(MediaError::ProcessingFailed(format!(
                     "LLM summarization failed - rate limited after {} attempts",
