@@ -187,8 +187,22 @@ impl ImageTransformer for ImageProcessor {
                 })?;
             }
             ImageFormat::Jpeg => {
+                // Convert RGBA to RGB if necessary for JPEG compatibility
+                let rgb_img = match resized_img.color() {
+                    image::ColorType::Rgba8 | image::ColorType::Rgba16 => {
+                        // Convert RGBA to RGB by compositing onto white background
+                        let mut rgb_img = image::DynamicImage::new_rgb8(
+                            resized_img.width(),
+                            resized_img.height(),
+                        );
+                        image::imageops::overlay(&mut rgb_img, &resized_img, 0, 0);
+                        rgb_img
+                    }
+                    _ => resized_img,
+                };
+
                 let encoder = JpegEncoder::new_with_quality(&mut output, 65);
-                resized_img.write_with_encoder(encoder).map_err(|e| {
+                rgb_img.write_with_encoder(encoder).map_err(|e| {
                     MediaError::EncodingFailed(format!("Failed to encode JPEG: {e}"))
                 })?;
             }
@@ -402,5 +416,63 @@ mod tests {
         assert!(SUPPORTED_IMAGE_FORMATS.contains(&"image/gif"));
         assert!(SUPPORTED_IMAGE_FORMATS.contains(&"image/webp"));
         assert_eq!(SUPPORTED_IMAGE_FORMATS.len(), 9);
+    }
+
+    #[test]
+    fn test_transform_rgba_to_jpeg() {
+        let processor = ImageProcessor::with_default_config();
+
+        // Create a small RGBA PNG image with transparency
+        let rgba_img = image::DynamicImage::new_rgba8(4, 4);
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(&mut png_data);
+        rgba_img.write_with_encoder(encoder).unwrap();
+
+        // Transform should succeed and convert RGBA to RGB for JPEG
+        let result = processor.transform_for_analysis(&png_data);
+        assert!(
+            result.is_ok(),
+            "RGBA image should be successfully converted to JPEG"
+        );
+
+        // Verify the output is valid JPEG data
+        let output_data = result.unwrap();
+        assert!(!output_data.is_empty());
+
+        // Should be able to load the result as an image
+        let loaded_img = image::load_from_memory(&output_data);
+        assert!(loaded_img.is_ok(), "Output should be valid image data");
+
+        // The loaded image should be RGB (no alpha channel)
+        let loaded_img = loaded_img.unwrap();
+        match loaded_img.color() {
+            image::ColorType::Rgb8 => {} // Expected
+            other => panic!("Expected RGB8, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_transform_rgb_to_jpeg() {
+        let processor = ImageProcessor::with_default_config();
+
+        // Create a small RGB image (no alpha)
+        let rgb_img = image::DynamicImage::new_rgb8(4, 4);
+        let mut jpeg_data = Vec::new();
+        let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 85);
+        rgb_img.write_with_encoder(encoder).unwrap();
+
+        // Transform should succeed without needing conversion
+        let result = processor.transform_for_analysis(&jpeg_data);
+        assert!(
+            result.is_ok(),
+            "RGB image should be successfully processed as JPEG"
+        );
+
+        let output_data = result.unwrap();
+        assert!(!output_data.is_empty());
+
+        // Should be able to load the result as an image
+        let loaded_img = image::load_from_memory(&output_data);
+        assert!(loaded_img.is_ok(), "Output should be valid image data");
     }
 }
