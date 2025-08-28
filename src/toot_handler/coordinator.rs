@@ -1,6 +1,5 @@
 use crate::error::{AlternatorError, MastodonError};
 use crate::mastodon::{MastodonStream, MediaRecreation};
-use crate::media::MediaProcessor;
 use tracing::debug;
 
 /// Recreate media attachments with descriptions and race condition checks
@@ -20,19 +19,41 @@ pub async fn recreate_media_with_race_check(
         .await
         .map_err(AlternatorError::Mastodon)?;
 
-    // Check if any of the original media attachments now have descriptions
-    let processable_media = MediaProcessor::with_default_config()
-        .filter_processable_media(&current_toot.media_attachments);
-
-    if processable_media.len() != media_recreations.len() {
-        debug!(
-            "Media state changed: expected {} processable media, found {}. Race condition detected.",
-            media_recreations.len(),
-            processable_media.len()
-        );
-        return Err(AlternatorError::Mastodon(
-            MastodonError::RaceConditionDetected,
-        ));
+    // Check that all media we're trying to recreate still exist and need descriptions
+    // media_recreations and original_media_ids are parallel arrays
+    for media_id in &original_media_ids {
+        if let Some(current_media) = current_toot
+            .media_attachments
+            .iter()
+            .find(|m| m.id == *media_id)
+        {
+            // Check if this media already has a description (processed by another instance)
+            if current_media.description.is_some()
+                && !current_media
+                    .description
+                    .as_ref()
+                    .unwrap()
+                    .trim()
+                    .is_empty()
+            {
+                debug!(
+                    "Media {} already has description, race condition detected",
+                    media_id
+                );
+                return Err(AlternatorError::Mastodon(
+                    MastodonError::RaceConditionDetected,
+                ));
+            }
+        } else {
+            // Media attachment not found in current toot state
+            debug!(
+                "Media {} no longer exists in toot {}, race condition detected",
+                media_id, toot_id
+            );
+            return Err(AlternatorError::Mastodon(
+                MastodonError::RaceConditionDetected,
+            ));
+        }
     }
 
     // Recreate all media attachments with descriptions (includes cleanup)
