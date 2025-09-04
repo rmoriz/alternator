@@ -270,6 +270,9 @@ impl MastodonClient {
 
     /// Reconnect with exponential backoff
     async fn reconnect(&mut self) -> Result<(), MastodonError> {
+        // Close existing connection if any
+        self.websocket = None;
+        
         loop {
             if self.reconnect_attempts > 0 {
                 let delay = ErrorRecovery::retry_delay(
@@ -289,7 +292,8 @@ impl MastodonClient {
 
             match self.connect().await {
                 Ok(()) => {
-                    info!("Successfully reconnected to Mastodon WebSocket");
+                    info!("Successfully reconnected to Mastodon WebSocket after {} attempts", 
+                          self.reconnect_attempts + 1);
                     self.reconnect_attempts = 0;
                     return Ok(());
                 }
@@ -299,11 +303,11 @@ impl MastodonClient {
                         ErrorRecovery::max_retries(&AlternatorError::Mastodon(e.clone()));
 
                     if self.reconnect_attempts >= max_retries {
-                        error!("Max reconnection attempts ({}) exceeded", max_retries);
+                        error!("Max reconnection attempts ({}) exceeded. Last error: {}", max_retries, e);
                         return Err(e);
                     }
                     warn!(
-                        "Reconnection attempt {} failed: {}",
+                        "Reconnection attempt {} failed: {}. Will retry...",
                         self.reconnect_attempts, e
                     );
                     // Continue the loop for next attempt
@@ -565,58 +569,91 @@ impl MastodonStream for MastodonClient {
                 }
             };
 
-            match websocket.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    match self.parse_streaming_event(&text) {
-                        Ok(Some(toot)) => {
-                            // Check if this is the authenticated user's toot
-                            if self.is_own_toot(&toot)? {
-                                debug!("Received own toot: {}", toot.id);
-                                return Ok(Some(toot));
+            // Add periodic ping to detect dead connections
+            let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+            ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            
+            // Add timeout for WebSocket operations
+            let timeout_duration = Duration::from_secs(60);
+
+            tokio::select! {
+                // Handle WebSocket messages with timeout
+                message = tokio::time::timeout(timeout_duration, websocket.next()) => {
+                    match message {
+                        Ok(Some(msg)) => match msg {
+                            Ok(Message::Text(text)) => {
+                            match self.parse_streaming_event(&text) {
+                                Ok(Some(toot)) => {
+                                    // Check if this is the authenticated user's toot
+                                    if self.is_own_toot(&toot)? {
+                                        debug!("Received own toot: {}", toot.id);
+                                        return Ok(Some(toot));
+                                    }
+                                    debug!("Ignoring toot from other user: {}", toot.account.acct);
+                                }
+                                Ok(None) => {
+                                    // Event was parsed but not a toot update, continue listening
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse streaming event: {}", e);
+                                }
                             }
-                            debug!("Ignoring toot from other user: {}", toot.account.acct);
+                        }
+                            Ok(Message::Close(_)) => {
+                            warn!("WebSocket connection closed by server");
+                            self.websocket = None;
+                            self.reconnect().await?;
+                            continue;
+                        }
+                            Ok(Message::Ping(data)) => {
+                            debug!("Received WebSocket ping, sending pong");
+                            if let Err(e) = websocket.send(Message::Pong(data)).await {
+                                warn!("Failed to send pong: {}", e);
+                                self.websocket = None;
+                                self.reconnect().await?;
+                            }
+                        }
+                            Ok(Message::Pong(_)) => {
+                            debug!("Received WebSocket pong - connection alive");
+                        }
+                            Ok(Message::Binary(_)) => {
+                            debug!("Received binary WebSocket message, ignoring");
+                        }
+                            Ok(Message::Frame(_)) => {
+                            debug!("Received WebSocket frame, ignoring");
+                            continue;
+                        }
+                            Err(e) => {
+                            error!("WebSocket error: {}", e);
+                            self.websocket = None;
+                            return Err(MastodonError::Disconnected(format!("WebSocket error: {e}")));
+                        }
                         }
                         Ok(None) => {
-                            // Event was parsed but not a toot update, continue listening
+                            warn!("WebSocket stream ended unexpectedly");
+                            self.websocket = None;
+                            self.reconnect().await?;
+                            continue;
                         }
-                        Err(e) => {
-                            warn!("Failed to parse streaming event: {}", e);
+                        Err(_timeout) => {
+                            warn!("WebSocket operation timed out after {} seconds - connection may be dead", 
+                                  timeout_duration.as_secs());
+                            self.websocket = None;
+                            self.reconnect().await?;
+                            continue;
                         }
                     }
                 }
-                Some(Ok(Message::Close(_))) => {
-                    warn!("WebSocket connection closed by server");
-                    self.websocket = None;
-                    self.reconnect().await?;
-                    continue;
-                }
-                Some(Ok(Message::Ping(data))) => {
-                    debug!("Received WebSocket ping, sending pong");
-                    if let Err(e) = websocket.send(Message::Pong(data)).await {
-                        warn!("Failed to send pong: {}", e);
+                
+                // Send periodic pings to detect dead connections
+                _ = ping_interval.tick() => {
+                    debug!("Sending periodic ping to detect dead connections");
+                    if let Err(e) = websocket.send(Message::Ping(vec![])).await {
+                        warn!("Failed to send periodic ping: {}", e);
                         self.websocket = None;
                         self.reconnect().await?;
+                        continue;
                     }
-                }
-                Some(Ok(Message::Pong(_))) => {
-                    debug!("Received WebSocket pong");
-                }
-                Some(Ok(Message::Binary(_))) => {
-                    debug!("Received binary WebSocket message, ignoring");
-                }
-                Some(Ok(Message::Frame(_))) => {
-                    debug!("Received WebSocket frame, ignoring");
-                    continue;
-                }
-                Some(Err(e)) => {
-                    error!("WebSocket error: {}", e);
-                    self.websocket = None;
-                    return Err(MastodonError::Disconnected(format!("WebSocket error: {e}")));
-                }
-                None => {
-                    warn!("WebSocket stream ended");
-                    self.websocket = None;
-                    self.reconnect().await?;
                 }
             }
         }
