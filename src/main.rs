@@ -227,6 +227,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
         crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
     let openrouter_client =
         crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone());
+    // Create shared components
     let media_processor =
         crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
             max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
@@ -237,10 +238,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
                 .supported_formats
                 .as_ref()
                 .map(|formats| formats.iter().cloned().collect())
-                .unwrap_or_else(|| {
-                    // Use default supported formats from MediaConfig to avoid hardcoding
-                    crate::media::MediaConfig::default().supported_formats
-                }),
+                .unwrap_or_else(|| crate::media::MediaConfig::default().supported_formats),
         });
     let language_detector = crate::language::LanguageDetector::new();
     let mut balance_monitor = crate::balance::BalanceMonitor::new(
@@ -261,10 +259,18 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     // Set up graceful shutdown handling
     let shutdown_signal = setup_shutdown_signal();
 
+    // Create toot handler for backfill processing
+    let mut toot_handler = TootStreamHandler::new(
+        mastodon_client.clone(),
+        crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone()),
+        media_processor,
+        language_detector,
+        config.clone(),
+    );
+
     // Process backfill if enabled
     if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &mut toot_handler)
-            .await
+        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &toot_handler).await
     {
         warn!("Backfill processing failed: {}", e);
         // Don't fail startup if backfill fails - just log and continue
@@ -287,13 +293,6 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     // Start main toot processing loop
     info!("Starting main toot processing loop");
-    let mut toot_handler = TootStreamHandler::new(
-        mastodon_client.clone(),
-        openrouter_client,
-        media_processor,
-        language_detector,
-        config.clone(),
-    );
 
     // Process backfill if enabled
     if let Err(e) =

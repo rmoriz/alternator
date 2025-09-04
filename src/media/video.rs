@@ -2,9 +2,9 @@ use crate::config::{OpenRouterConfig, WhisperConfig};
 use crate::error::MediaError;
 use crate::mastodon::MediaAttachment;
 use crate::media::audio::{is_ffmpeg_available, summarize_transcript};
+use crate::media::TempFile;
 use crate::whisper_cli::WhisperCli;
 use std::process::Command;
-use tempfile::NamedTempFile;
 
 /// Supported video formats for transcription  
 pub const SUPPORTED_VIDEO_FORMATS: &[&str] = &[
@@ -131,8 +131,7 @@ pub async fn process_video_for_transcript(
 
 /// Extract audio from video data and convert to WAV format using FFmpeg
 async fn extract_audio_from_video(video_data: &[u8]) -> Result<Vec<u8>, MediaError> {
-    let input_file = NamedTempFile::new()
-        .map_err(|e| MediaError::ProcessingFailed(format!("Failed to create temp file: {e}")))?;
+    let input_file = TempFile::new()?;
 
     // Write video data and sync to ensure it's on disk before FFmpeg reads it
     tokio::fs::write(input_file.path(), video_data)
@@ -142,9 +141,7 @@ async fn extract_audio_from_video(video_data: &[u8]) -> Result<Vec<u8>, MediaErr
     // Sync to ensure data is written before FFmpeg processes it
     let input_file_path = input_file.path().to_path_buf();
 
-    let output_file = NamedTempFile::with_suffix(".wav").map_err(|e| {
-        MediaError::ProcessingFailed(format!("Failed to create output temp file: {e}"))
-    })?;
+    let output_file = TempFile::with_suffix(".wav")?;
 
     let output_file_path = output_file.path().to_path_buf();
 
@@ -195,7 +192,7 @@ async fn extract_audio_from_video(video_data: &[u8]) -> Result<Vec<u8>, MediaErr
         .await
         .map_err(|e| MediaError::ProcessingFailed(format!("Failed to read extracted WAV: {e}")));
 
-    // Explicit cleanup is handled by NamedTempFile Drop
+    // Explicit cleanup is handled by TempFile Drop
     result
 }
 
@@ -209,9 +206,7 @@ async fn transcribe_wav_audio_with_whisper_cli(
     let whisper_cli = WhisperCli::new(whisper_config)?;
 
     // Save WAV data to a temporary file
-    let wav_file = NamedTempFile::with_suffix(".wav").map_err(|e| {
-        MediaError::ProcessingFailed(format!("Failed to create WAV temp file: {e}"))
-    })?;
+    let wav_file = TempFile::with_suffix(".wav")?;
 
     tokio::fs::write(wav_file.path(), wav_data)
         .await

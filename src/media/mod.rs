@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod helpers;
 pub mod image;
 pub mod video;
 
@@ -8,6 +9,7 @@ use std::collections::HashSet;
 
 // Re-export items for backward compatibility
 pub use audio::{is_ffmpeg_available, process_audio_for_transcript, SUPPORTED_AUDIO_FORMATS};
+pub use helpers::TempFile;
 pub use image::{ImageFormat, ImageTransformer, SUPPORTED_IMAGE_FORMATS};
 pub use video::{process_video_for_transcript, SUPPORTED_VIDEO_FORMATS};
 
