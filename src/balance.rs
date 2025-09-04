@@ -429,6 +429,10 @@ mod tests {
                 url: "https://example.com".to_string(),
             })
         }
+
+        async fn get_user_toots(&self, _limit: u32) -> Result<Vec<TootEvent>, MastodonError> {
+            Ok(vec![])
+        }
     }
 
     fn create_test_config() -> BalanceConfig {

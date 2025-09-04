@@ -82,6 +82,10 @@ pub struct MastodonConfig {
     #[serde(default)]
     pub access_token: String,
     pub user_stream: Option<bool>,
+    /// Number of recent toots to backfill on startup (0 = disabled, default: 25)
+    pub backfill_count: Option<u32>,
+    /// Pause between backfill processing in seconds (default: 60)
+    pub backfill_pause: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +237,8 @@ impl Config {
                     instance_url: String::new(),
                     access_token: String::new(),
                     user_stream: None,
+                    backfill_count: Some(25),
+                    backfill_pause: Some(60),
                 },
                 openrouter: OpenRouterConfig {
                     api_key: String::new(),
@@ -320,6 +326,20 @@ impl Config {
             self.mastodon.user_stream = Some(user_stream.parse().map_err(|_| {
                 ConfigError::InvalidValue(
                     "ALTERNATOR_MASTODON_USER_STREAM must be true or false".to_string(),
+                )
+            })?);
+        }
+        if let Ok(backfill_count) = env::var("ALTERNATOR_MASTODON_BACKFILL_COUNT") {
+            self.mastodon.backfill_count = Some(backfill_count.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MASTODON_BACKFILL_COUNT must be a valid number".to_string(),
+                )
+            })?);
+        }
+        if let Ok(backfill_pause) = env::var("ALTERNATOR_MASTODON_BACKFILL_PAUSE") {
+            self.mastodon.backfill_pause = Some(backfill_pause.parse().map_err(|_| {
+                ConfigError::InvalidValue(
+                    "ALTERNATOR_MASTODON_BACKFILL_PAUSE must be a valid number".to_string(),
                 )
             })?);
         }
@@ -521,6 +541,22 @@ impl Config {
                         "balance.check_time must be in HH:MM format".to_string(),
                     ));
                 }
+            }
+        }
+
+        // Validate backfill configuration
+        if let Some(backfill_count) = self.mastodon.backfill_count {
+            if backfill_count > 100 {
+                return Err(ConfigError::InvalidValue(
+                    "mastodon.backfill_count cannot exceed 100".to_string(),
+                ));
+            }
+        }
+        if let Some(backfill_pause) = self.mastodon.backfill_pause {
+            if backfill_pause > 3600 {
+                return Err(ConfigError::InvalidValue(
+                    "mastodon.backfill_pause cannot exceed 3600 seconds (1 hour)".to_string(),
+                ));
             }
         }
 
@@ -735,6 +771,8 @@ mod tests {
                 instance_url: String::new(),
                 access_token: String::new(),
                 user_stream: None,
+                backfill_count: Some(25),
+                backfill_pause: Some(60),
             },
             openrouter: OpenRouterConfig {
                 api_key: String::new(),

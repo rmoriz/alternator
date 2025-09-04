@@ -216,6 +216,19 @@ check_time = "12:00"
 level = "info"
 ```
 
+### Backfill Feature
+
+Alternator can process your recent toots on startup to add descriptions to media that was posted before the bot was running:
+
+- **`backfill_count`**: Number of recent toots to process (default: 25, set to 0 to disable)
+- **`backfill_pause`**: Seconds to wait between processing each toot (default: 60)
+
+The backfill feature:
+- Only processes toots with media attachments lacking descriptions
+- Respects rate limits with configurable pauses
+- Runs once on startup before normal stream processing
+- Gracefully handles errors without stopping the application
+
 ### Environment Variables
 
 All configuration options can be overridden with environment variables:

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{self, EnvFilter};
 
+mod backfill;
 mod balance;
 mod config;
 mod error;
@@ -13,6 +14,7 @@ mod openrouter;
 mod toot_handler;
 mod whisper_cli;
 
+use crate::backfill::BackfillProcessor;
 use crate::config::{Config, RuntimeConfig};
 use crate::error::{AlternatorError, ErrorRecovery};
 use crate::toot_handler::TootStreamHandler;
@@ -258,6 +260,16 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     // Set up graceful shutdown handling
     let shutdown_signal = setup_shutdown_signal();
+
+    // Process backfill if enabled
+    if let Err(e) = BackfillProcessor::process_backfill(
+        config.config(),
+        &mastodon_client,
+        &handler,
+    ).await {
+        warn!("Backfill processing failed: {}", e);
+        // Don't fail startup if backfill fails - just log and continue
+    }
 
     // Start balance monitoring in background if enabled
     let balance_task = if balance_monitor.is_enabled() {

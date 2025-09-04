@@ -58,6 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2025-08-16
 
+### Added
+- **Backfill feature** - Process recent toots on startup to add descriptions to existing media
+  - Configurable number of toots to process (default: 25, 0 = disabled)
+  - Configurable pause between processing (default: 60 seconds)
+  - Only processes toots with missing media descriptions
+  - Graceful error handling and comprehensive logging
+  - Environment variables: `ALTERNATOR_MASTODON_BACKFILL_COUNT`, `ALTERNATOR_MASTODON_BACKFILL_PAUSE`
+
 ### Enhanced
 - **Added 5 additional languages** - Finnish, Irish Gaelic, Welsh, Romanian, and Romansh language support for AI attribution
 - **Separated Docker builds by PyTorch backend** - Reduced image sizes with specialized builds:

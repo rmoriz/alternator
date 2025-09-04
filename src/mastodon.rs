@@ -206,6 +206,7 @@ pub trait MastodonStream {
     ) -> Result<(), MastodonError>;
     async fn send_dm(&self, message: &str) -> Result<(), MastodonError>;
     async fn verify_credentials(&mut self) -> Result<Account, MastodonError>;
+    async fn get_user_toots(&self, limit: u32) -> Result<Vec<TootEvent>, MastodonError>;
 }
 
 impl MastodonClient {
@@ -956,6 +957,54 @@ impl MastodonStream for MastodonClient {
         Ok(account)
     }
 
+    /// Get recent toots from the authenticated user for backfill processing
+    async fn get_user_toots(&self, limit: u32) -> Result<Vec<TootEvent>, MastodonError> {
+        let user_id = self
+            .authenticated_user_id
+            .as_ref()
+            .ok_or(MastodonError::UserVerificationFailed)?;
+
+        let url = format!(
+            "{}/api/v1/accounts/{}/statuses?limit={}&exclude_replies=true&exclude_reblogs=true",
+            self.config.instance_url.trim_end_matches('/'),
+            user_id,
+            limit.min(40) // Mastodon API limit is 40
+        );
+
+        debug!("Fetching {} recent toots for backfill: {}", limit, url);
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.access_token),
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                MastodonError::ApiRequestFailed(format!("Failed to fetch user toots: {e}"))
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(MastodonError::ApiRequestFailed(format!(
+                "User toots API request failed with status {status}: {error_text}"
+            )));
+        }
+
+        let toots: Vec<TootEvent> = response.json().await.map_err(|e| {
+            MastodonError::InvalidTootData(format!("Failed to parse user toots response: {e}"))
+        })?;
+
+        info!(
+            "Retrieved {} toots for backfill processing",
+            toots.len()
+        );
+        Ok(toots)
+    }
+
     /// Create a new media attachment with description
     async fn create_media_attachment(
         &self,
@@ -1510,6 +1559,8 @@ mod tests {
             instance_url: "https://mastodon.social".to_string(),
             access_token: "test_token".to_string(),
             user_stream: Some(true),
+            backfill_count: Some(25),
+            backfill_pause: Some(60),
         }
     }
 
