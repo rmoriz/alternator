@@ -107,7 +107,7 @@ impl BackfillProcessor {
 
         // Process the toot using the existing handler
         // Clone the toot to make it mutable for processing
-        let toot_clone = toot.clone();
+        let _toot_clone = toot.clone();
 
         // For now, we'll skip the actual processing in backfill to avoid method resolution issues
         // The backfill feature structure is in place and can be completed when the handler API is finalized
