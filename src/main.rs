@@ -263,7 +263,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     // Process backfill if enabled
     if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &handler).await
+        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &stream_handler).await
     {
         warn!("Backfill processing failed: {}", e);
         // Don't fail startup if backfill fails - just log and continue
