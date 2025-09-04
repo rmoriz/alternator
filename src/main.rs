@@ -263,7 +263,7 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     // Process backfill if enabled
     if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &toot_handler).await
+        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &handler).await
     {
         warn!("Backfill processing failed: {}", e);
         // Don't fail startup if backfill fails - just log and continue
@@ -459,6 +459,8 @@ mod tests {
                 instance_url: "https://mastodon.example".to_string(),
                 access_token: "test_token".to_string(),
                 user_stream: Some(true),
+                backfill_count: Some(25),
+                backfill_pause: Some(60),
             },
             openrouter: OpenRouterConfig {
                 api_key: "test_key".to_string(),

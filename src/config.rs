@@ -731,6 +731,8 @@ mod tests {
                 instance_url: "https://mastodon.social".to_string(),
                 access_token: "token".to_string(),
                 user_stream: None,
+                backfill_count: Some(25),
+                backfill_pause: Some(60),
             },
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),
@@ -873,6 +875,8 @@ level = "info"
                 instance_url: "https://mastodon.social".to_string(),
                 access_token: "token".to_string(),
                 user_stream: None,
+                backfill_count: Some(25),
+                backfill_pause: Some(60),
             },
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),
