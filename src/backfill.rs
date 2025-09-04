@@ -56,7 +56,7 @@ impl BackfillProcessor {
             );
 
             // Process the toot
-            if let Err(e) = Self::process_backfill_toot(toot, handler).await {
+            if let Err(e) = Self::process_backfill_toot(toot, _handler).await {
                 warn!("Failed to process backfill toot {}: {}", toot.id, e);
                 // Continue with next toot instead of failing completely
             }
@@ -78,7 +78,7 @@ impl BackfillProcessor {
     /// Process a single toot during backfill
     async fn process_backfill_toot(
         toot: &TootEvent,
-        handler: &TootStreamHandler,
+        _handler: &TootStreamHandler,
     ) -> Result<(), AlternatorError> {
         // Check if toot has media attachments that need processing
         if toot.media_attachments.is_empty() {
