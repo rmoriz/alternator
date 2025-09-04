@@ -697,6 +697,8 @@ mod tests {
                 instance_url: String::new(),
                 access_token: "token".to_string(),
                 user_stream: None,
+                backfill_count: Some(25),
+                backfill_pause: Some(60),
             },
             openrouter: OpenRouterConfig {
                 api_key: "key".to_string(),

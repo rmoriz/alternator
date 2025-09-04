@@ -30,6 +30,8 @@ fn create_test_config() -> Config {
             instance_url: "https://mastodon.social".to_string(),
             access_token: "test_token".to_string(),
             user_stream: Some(true),
+            backfill_count: Some(25),
+            backfill_pause: Some(60),
         },
         openrouter: OpenRouterConfig {
             api_key: "test_api_key".to_string(),
