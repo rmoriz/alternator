@@ -998,10 +998,7 @@ impl MastodonStream for MastodonClient {
             MastodonError::InvalidTootData(format!("Failed to parse user toots response: {e}"))
         })?;
 
-        info!(
-            "Retrieved {} toots for backfill processing",
-            toots.len()
-        );
+        info!("Retrieved {} toots for backfill processing", toots.len());
         Ok(toots)
     }
 
