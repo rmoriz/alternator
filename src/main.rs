@@ -263,7 +263,8 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     // Process backfill if enabled
     if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &mut toot_handler).await
+        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &mut toot_handler)
+            .await
     {
         warn!("Backfill processing failed: {}", e);
         // Don't fail startup if backfill fails - just log and continue
@@ -287,12 +288,20 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     // Start main toot processing loop
     info!("Starting main toot processing loop");
     let mut toot_handler = TootStreamHandler::new(
-        mastodon_client,
+        mastodon_client.clone(),
         openrouter_client,
         media_processor,
         language_detector,
-        config,
+        config.clone(),
     );
+
+    // Process backfill if enabled
+    if let Err(e) =
+        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &toot_handler).await
+    {
+        warn!("Backfill processing failed: {}", e);
+        // Don't fail startup if backfill fails - just log and continue
+    }
 
     let processing_task = tokio::spawn(async move { toot_handler.start_processing().await });
 
