@@ -13,7 +13,7 @@ impl BackfillProcessor {
     pub async fn process_backfill(
         config: &Config,
         mastodon_client: &MastodonClient,
-        handler: &TootStreamHandler,
+        _handler: &TootStreamHandler,
     ) -> Result<(), AlternatorError> {
         let backfill_count = config.mastodon.backfill_count.unwrap_or(25);
         let backfill_pause = config.mastodon.backfill_pause.unwrap_or(60);
