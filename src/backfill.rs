@@ -57,10 +57,7 @@ impl BackfillProcessor {
 
             // Process the toot
             if let Err(e) = Self::process_backfill_toot(toot, handler).await {
-                warn!(
-                    "Failed to process backfill toot {}: {}",
-                    toot.id, e
-                );
+                warn!("Failed to process backfill toot {}: {}", toot.id, e);
                 // Continue with next toot instead of failing completely
             }
 
@@ -90,10 +87,9 @@ impl BackfillProcessor {
         }
 
         // Check if any media attachments lack descriptions
-        let needs_processing = toot
-            .media_attachments
-            .iter()
-            .any(|media| media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty());
+        let needs_processing = toot.media_attachments.iter().any(|media| {
+            media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty()
+        });
 
         if !needs_processing {
             debug!(
@@ -116,7 +112,6 @@ impl BackfillProcessor {
         // For now, we'll skip the actual processing in backfill to avoid method resolution issues
         // The backfill feature structure is in place and can be completed when the handler API is finalized
         info!("Backfill toot processing placeholder for toot {}", toot.id);
-        Ok(())
         // Placeholder implementation completed successfully
 
         Ok(())
@@ -215,18 +210,16 @@ mod tests {
     fn test_backfill_toot_needs_processing() {
         // Toot with media but no description should need processing
         let toot_needs_processing = create_test_toot_with_media("1", false);
-        let needs_processing = toot_needs_processing
-            .media_attachments
-            .iter()
-            .any(|media| media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty());
+        let needs_processing = toot_needs_processing.media_attachments.iter().any(|media| {
+            media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty()
+        });
         assert!(needs_processing);
 
         // Toot with media and description should not need processing
         let toot_has_description = create_test_toot_with_media("2", true);
-        let needs_processing = toot_has_description
-            .media_attachments
-            .iter()
-            .any(|media| media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty());
+        let needs_processing = toot_has_description.media_attachments.iter().any(|media| {
+            media.description.is_none() || media.description.as_ref().unwrap().trim().is_empty()
+        });
         assert!(!needs_processing);
     }
 
@@ -237,7 +230,7 @@ mod tests {
         config.mastodon.backfill_count = Some(101);
         // Would fail validation if we called config.validate()
 
-        let mut config2 = create_test_config(25, 3601); // Over limit  
+        let mut config2 = create_test_config(25, 3601); // Over limit
         config2.mastodon.backfill_pause = Some(3601);
         // Would fail validation if we called config.validate()
 
@@ -251,7 +244,7 @@ mod tests {
     fn test_backfill_disabled_check() {
         let config_disabled = create_test_config(0, 60);
         assert_eq!(config_disabled.mastodon.backfill_count, Some(0));
-        
+
         let config_enabled = create_test_config(10, 30);
         assert_eq!(config_enabled.mastodon.backfill_count, Some(10));
         assert_eq!(config_enabled.mastodon.backfill_pause, Some(30));
