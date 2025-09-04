@@ -272,7 +272,7 @@ impl MastodonClient {
     async fn reconnect(&mut self) -> Result<(), MastodonError> {
         // Close existing connection if any
         self.websocket = None;
-        
+
         loop {
             if self.reconnect_attempts > 0 {
                 let delay = ErrorRecovery::retry_delay(
@@ -292,8 +292,10 @@ impl MastodonClient {
 
             match self.connect().await {
                 Ok(()) => {
-                    info!("Successfully reconnected to Mastodon WebSocket after {} attempts", 
-                          self.reconnect_attempts + 1);
+                    info!(
+                        "Successfully reconnected to Mastodon WebSocket after {} attempts",
+                        self.reconnect_attempts + 1
+                    );
                     self.reconnect_attempts = 0;
                     return Ok(());
                 }
@@ -303,7 +305,10 @@ impl MastodonClient {
                         ErrorRecovery::max_retries(&AlternatorError::Mastodon(e.clone()));
 
                     if self.reconnect_attempts >= max_retries {
-                        error!("Max reconnection attempts ({}) exceeded. Last error: {}", max_retries, e);
+                        error!(
+                            "Max reconnection attempts ({}) exceeded. Last error: {}",
+                            max_retries, e
+                        );
                         return Err(e);
                     }
                     warn!(
@@ -572,7 +577,7 @@ impl MastodonStream for MastodonClient {
             // Add periodic ping to detect dead connections
             let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
             ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            
+
             // Add timeout for WebSocket operations
             let timeout_duration = Duration::from_secs(60);
 
@@ -636,7 +641,7 @@ impl MastodonStream for MastodonClient {
                             continue;
                         }
                         Err(_timeout) => {
-                            warn!("WebSocket operation timed out after {} seconds - connection may be dead", 
+                            warn!("WebSocket operation timed out after {} seconds - connection may be dead",
                                   timeout_duration.as_secs());
                             self.websocket = None;
                             self.reconnect().await?;
@@ -644,7 +649,7 @@ impl MastodonStream for MastodonClient {
                         }
                     }
                 }
-                
+
                 // Send periodic pings to detect dead connections
                 _ = ping_interval.tick() => {
                     debug!("Sending periodic ping to detect dead connections");
