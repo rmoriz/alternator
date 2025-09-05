@@ -115,7 +115,11 @@ impl WhisperCli {
                 warn!("Model directory does not exist: {}", model_dir.display());
                 // Try to create it
                 if let Err(e) = std::fs::create_dir_all(model_dir) {
-                    warn!("Failed to create model directory {}: {}", model_dir.display(), e);
+                    warn!(
+                        "Failed to create model directory {}: {}",
+                        model_dir.display(),
+                        e
+                    );
                 } else {
                     info!("Created model directory: {}", model_dir.display());
                 }
@@ -220,9 +224,7 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             Ok(())
         })
         .await
-        .map_err(|e| {
-            MediaError::ProcessingFailed(format!("Model preloading task failed: {}", e))
-        });
+        .map_err(|e| MediaError::ProcessingFailed(format!("Model preloading task failed: {}", e)));
 
         match preload_result {
             Ok(_) => {
@@ -232,7 +234,10 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             Err(e) => {
                 // Even if preloading fails, mark as attempted to avoid repeated attempts
                 self.model_preloaded.store(true, Ordering::Relaxed);
-                warn!("⚠ Whisper model preloading failed, will load on-demand: {}", e);
+                warn!(
+                    "⚠ Whisper model preloading failed, will load on-demand: {}",
+                    e
+                );
                 // Don't return error - allow application to continue without preloaded model
             }
         }
@@ -251,7 +256,10 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
             warn!("Model not preloaded, loading now (this may cause delay)");
             // Try to preload now, but don't fail if it doesn't work
             if let Err(e) = self.preload_model().await {
-                warn!("Failed to preload model on-demand, proceeding with CLI: {}", e);
+                warn!(
+                    "Failed to preload model on-demand, proceeding with CLI: {}",
+                    e
+                );
             }
         }
 
