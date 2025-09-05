@@ -7,6 +7,12 @@ use crate::error::MediaError;
 use crate::mastodon::MediaAttachment;
 use std::collections::HashSet;
 
+/// Type alias for progress callback to reduce type complexity
+pub type ProgressCallback = Option<Box<dyn FnMut(&str) + Send + Sync>>;
+
+/// Type alias for streaming callback to reduce type complexity
+pub type StreamingCallback = Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>;
+
 // Re-export items for backward compatibility
 pub use audio::{is_ffmpeg_available, process_audio_for_transcript, SUPPORTED_AUDIO_FORMATS};
 pub use helpers::TempFile;
@@ -60,10 +66,11 @@ pub trait MediaTransformer {
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
     /// Transform image data for analysis with progress callback
+    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
-        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+        progress_callback: ProgressCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Default implementation ignores progress callback
         let _ = progress_callback;
@@ -182,10 +189,11 @@ impl MediaTransformer for UnifiedMediaTransformer {
         self.image_processor.transform_for_analysis(image_data)
     }
 
+    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
-        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+        progress_callback: ProgressCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Delegate to image processor for streaming image transformation
         self.image_processor
@@ -313,10 +321,11 @@ impl MediaProcessor {
     }
 
     /// Download media from URL with optional streaming callback for processing chunks
+    #[allow(clippy::type_complexity)]
     pub async fn download_media_with_callback(
         &self,
         url: &str,
-        mut callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>,
+        mut callback: StreamingCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Validate URL format before attempting download
         let parsed_url = match url::Url::parse(url) {
@@ -396,10 +405,11 @@ impl MediaProcessor {
     }
 
     /// Process media attachment with optional progress callback for streaming processing
+    #[allow(clippy::type_complexity)]
     pub async fn process_media_for_analysis_with_progress(
         &self,
         media: &MediaAttachment,
-        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+        progress_callback: ProgressCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Check if media is supported and needs processing
         if !self.transformer.is_supported(&media.media_type) {

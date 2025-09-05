@@ -3,6 +3,9 @@ use crate::mastodon::MediaAttachment;
 use image::{codecs::jpeg::JpegEncoder, codecs::png::PngEncoder, DynamicImage, GenericImageView};
 use std::collections::HashSet;
 
+/// Type alias for progress callback to reduce type complexity
+pub type ProgressCallback = Option<Box<dyn FnMut(&str) + Send + Sync>>;
+
 // Import and re-export ImageFormat for external use
 pub use image::ImageFormat;
 
@@ -60,10 +63,11 @@ pub trait ImageTransformer {
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
     /// Transform image data for analysis with optional progress callback
+    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
-        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+        progress_callback: ProgressCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Default implementation calls the regular method
         let _ = progress_callback;
@@ -170,10 +174,11 @@ impl ImageTransformer for ImageProcessor {
         self.transform_for_analysis_with_progress(image_data, None)
     }
 
+    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
-        mut progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+        mut progress_callback: ProgressCallback,
     ) -> Result<Vec<u8>, MediaError> {
         // Check size limits first
         self.check_size_limits(image_data)?;
