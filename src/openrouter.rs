@@ -651,10 +651,10 @@ impl OpenRouterClient {
         };
 
         // Log the complete request for debugging
-        info!("=== OpenRouter Request Debug ===");
-        info!("URL: {}/chat/completions", self.base_url());
-        info!("Headers:");
-        info!(
+        debug!("=== OpenRouter Request Debug ===");
+        debug!("URL: {}/chat/completions", self.base_url());
+        debug!("Headers:");
+        debug!(
             "  Authorization: Bearer {}",
             if self.config.api_key.len() > 10 {
                 format!(
@@ -666,16 +666,16 @@ impl OpenRouterClient {
                 "[REDACTED]".to_string()
             }
         );
-        info!("  Content-Type: application/json");
-        info!("  HTTP-Referer: https://github.com/rmoriz/alternator");
-        info!("  X-Title: Alternator - Mastodon Media Describer");
-        info!("Request Body:");
-        info!(
+        debug!("  Content-Type: application/json");
+        debug!("  HTTP-Referer: https://github.com/rmoriz/alternator");
+        debug!("  X-Title: Alternator - Mastodon Media Describer");
+        debug!("Request Body:");
+        debug!(
             "{}",
             serde_json::to_string_pretty(&request)
                 .unwrap_or_else(|_| "Failed to serialize request".to_string())
         );
-        info!("=== End OpenRouter Request Debug ===");
+        debug!("=== End OpenRouter Request Debug ===");
 
         let response: ImageDescriptionResponse = self
             .api_request_with_retry(
@@ -822,10 +822,10 @@ impl OpenRouterClient {
         });
 
         // Log the complete request for debugging
-        info!("=== OpenRouter Request Debug ===");
-        info!("URL: {}/chat/completions", self.base_url());
-        info!("Headers:");
-        info!(
+        debug!("=== OpenRouter Request Debug ===");
+        debug!("URL: {}/chat/completions", self.base_url());
+        debug!("Headers:");
+        debug!(
             "  Authorization: Bearer {}",
             if self.config.api_key.len() > 10 {
                 format!(
@@ -837,16 +837,16 @@ impl OpenRouterClient {
                 "[REDACTED]".to_string()
             }
         );
-        info!("  Content-Type: application/json");
-        info!("  HTTP-Referer: https://github.com/rmoriz/alternator");
-        info!("  X-Title: Alternator - Mastodon Media Describer");
-        info!("Request Body:");
-        info!(
+        debug!("  Content-Type: application/json");
+        debug!("  HTTP-Referer: https://github.com/rmoriz/alternator");
+        debug!("  X-Title: Alternator - Mastodon Media Describer");
+        debug!("Request Body:");
+        debug!(
             "{}",
             serde_json::to_string_pretty(&request)
                 .unwrap_or_else(|_| "Failed to serialize request".to_string())
         );
-        info!("=== End OpenRouter Request Debug ===");
+        debug!("=== End OpenRouter Request Debug ===");
 
         let response: ImageDescriptionResponse = self
             .api_request_with_retry(
