@@ -7,11 +7,76 @@ use crate::error::MediaError;
 use crate::mastodon::MediaAttachment;
 use std::collections::HashSet;
 
-/// Type alias for progress callback to reduce type complexity
-pub type ProgressCallback = Option<Box<dyn FnMut(&str) + Send + Sync>>;
+/// Progress reporter for tracking operation progress
+pub struct ProgressReporter {
+    #[allow(clippy::type_complexity)]
+    callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+}
 
-/// Type alias for streaming callback to reduce type complexity
-pub type StreamingCallback = Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>;
+impl ProgressReporter {
+    /// Create a new progress reporter
+    #[allow(clippy::type_complexity)]
+    #[allow(dead_code)]
+    pub fn new(callback: Option<Box<dyn FnMut(&str) + Send + Sync>>) -> Self {
+        Self { callback }
+    }
+
+    /// Create a disabled progress reporter (no-op)
+    pub fn disabled() -> Self {
+        Self { callback: None }
+    }
+
+    /// Report progress with a message
+    pub fn report(&mut self, message: &str) {
+        if let Some(ref mut cb) = self.callback {
+            cb(message);
+        }
+    }
+}
+
+impl Default for ProgressReporter {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+/// Streaming processor for handling data chunks during download/streaming
+pub struct StreamingProcessor {
+    #[allow(clippy::type_complexity)]
+    callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>,
+}
+
+impl StreamingProcessor {
+    /// Create a new streaming processor
+    #[allow(clippy::type_complexity)]
+    #[allow(dead_code)]
+    pub fn new(callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>) -> Self {
+        Self { callback }
+    }
+
+    /// Create a disabled streaming processor (no-op)
+    pub fn disabled() -> Self {
+        Self { callback: None }
+    }
+
+    /// Process a data chunk
+    pub fn process(&mut self, data: &[u8]) -> Result<(), MediaError> {
+        if let Some(ref mut cb) = self.callback {
+            cb(data)?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for StreamingProcessor {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+// Type aliases for backward compatibility
+pub type ProgressCallback = Option<ProgressReporter>;
+pub type StreamingCallback = Option<StreamingProcessor>;
 
 // Re-export items for backward compatibility
 pub use audio::{is_ffmpeg_available, process_audio_for_transcript, SUPPORTED_AUDIO_FORMATS};
@@ -66,7 +131,6 @@ pub trait MediaTransformer {
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
     /// Transform image data for analysis with progress callback
-    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
@@ -189,7 +253,6 @@ impl MediaTransformer for UnifiedMediaTransformer {
         self.image_processor.transform_for_analysis(image_data)
     }
 
-    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
@@ -321,7 +384,6 @@ impl MediaProcessor {
     }
 
     /// Download media from URL with optional streaming callback for processing chunks
-    #[allow(clippy::type_complexity)]
     pub async fn download_media_with_callback(
         &self,
         url: &str,
@@ -385,8 +447,8 @@ impl MediaProcessor {
             }
 
             // Call callback if provided for streaming processing
-            if let Some(ref mut cb) = callback {
-                cb(&chunk)?;
+            if let Some(ref mut processor) = callback {
+                processor.process(&chunk)?;
             }
 
             data.extend_from_slice(&chunk);
@@ -405,7 +467,6 @@ impl MediaProcessor {
     }
 
     /// Process media attachment with optional progress callback for streaming processing
-    #[allow(clippy::type_complexity)]
     pub async fn process_media_for_analysis_with_progress(
         &self,
         media: &MediaAttachment,

@@ -3,8 +3,9 @@ use crate::mastodon::MediaAttachment;
 use image::{codecs::jpeg::JpegEncoder, codecs::png::PngEncoder, DynamicImage, GenericImageView};
 use std::collections::HashSet;
 
-/// Type alias for progress callback to reduce type complexity
-pub type ProgressCallback = Option<Box<dyn FnMut(&str) + Send + Sync>>;
+// Re-export the progress reporter from mod.rs
+pub use super::ProgressReporter;
+pub type ProgressCallback = Option<ProgressReporter>;
 
 // Import and re-export ImageFormat for external use
 pub use image::ImageFormat;
@@ -63,7 +64,6 @@ pub trait ImageTransformer {
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
     /// Transform image data for analysis with optional progress callback
-    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
@@ -174,7 +174,6 @@ impl ImageTransformer for ImageProcessor {
         self.transform_for_analysis_with_progress(image_data, None)
     }
 
-    #[allow(clippy::type_complexity)]
     fn transform_for_analysis_with_progress(
         &self,
         image_data: &[u8],
@@ -183,23 +182,23 @@ impl ImageTransformer for ImageProcessor {
         // Check size limits first
         self.check_size_limits(image_data)?;
 
-        if let Some(ref mut cb) = progress_callback {
-            cb("Detecting image format...");
+        if let Some(ref mut reporter) = progress_callback {
+            reporter.report("Detecting image format...");
         }
 
         // Detect and validate format
         let format = self.detect_format(image_data)?;
 
-        if let Some(ref mut cb) = progress_callback {
-            cb("Loading image data...");
+        if let Some(ref mut reporter) = progress_callback {
+            reporter.report("Loading image data...");
         }
 
         // Load image with streaming support for large images
         let img = image::load_from_memory(image_data)
             .map_err(|e| MediaError::DecodingFailed(format!("Failed to decode image: {e}")))?;
 
-        if let Some(ref mut cb) = progress_callback {
-            cb("Resizing image if needed...");
+        if let Some(ref mut reporter) = progress_callback {
+            reporter.report("Resizing image if needed...");
         }
 
         // Resize if needed
@@ -208,8 +207,8 @@ impl ImageTransformer for ImageProcessor {
         // Get optimal output format
         let output_format = self.get_optimal_format(format);
 
-        if let Some(ref mut cb) = progress_callback {
-            cb("Encoding image...");
+        if let Some(ref mut reporter) = progress_callback {
+            reporter.report("Encoding image...");
         }
 
         // Encode to bytes with streaming support
@@ -245,8 +244,8 @@ impl ImageTransformer for ImageProcessor {
             }
         }
 
-        if let Some(ref mut cb) = progress_callback {
-            cb("Image processing complete");
+        if let Some(ref mut reporter) = progress_callback {
+            reporter.report("Image processing complete");
         }
 
         Ok(output)
