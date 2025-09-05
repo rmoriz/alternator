@@ -72,7 +72,7 @@ pub async fn process_audio_for_transcript(
         });
     }
 
-    // Download audio data
+    // Download audio data with streaming support
     let http_client = reqwest::Client::new();
     let url_string = media.url.clone(); // Clone early to avoid borrow issues
 
@@ -92,16 +92,30 @@ pub async fn process_audio_for_transcript(
         return Err(MediaError::DownloadFailed { url: url_string });
     }
 
-    let audio_data = response.bytes().await.map_err(|e| {
-        tracing::warn!(
-            "Failed to read audio response bytes from {}: {}",
-            url_string,
-            e
-        );
-        MediaError::DownloadFailed {
-            url: url_string.clone(),
+    // Use streaming download to reduce memory usage for large audio files
+    let mut stream = response.bytes_stream();
+    let mut audio_data = Vec::new();
+    let mut total_size = 0usize;
+
+    use futures_util::StreamExt;
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| {
+            tracing::warn!("Failed to read audio chunk from {}: {}", url_string, e);
+            MediaError::DownloadFailed {
+                url: url_string.clone(),
+            }
+        })?;
+
+        // Check for reasonable size limits to prevent memory exhaustion
+        total_size += chunk.len();
+        if total_size > 100 * 1024 * 1024 { // 100MB limit for audio
+            return Err(MediaError::ProcessingFailed(
+                "Audio file too large (>100MB)".to_string(),
+            ));
         }
-    })?;
+
+        audio_data.extend_from_slice(&chunk);
+    }
 
     // Check audio size limits
     let size_mb = audio_data.len() as f64 / (1024.0 * 1024.0);

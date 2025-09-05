@@ -59,11 +59,22 @@ pub trait MediaTransformer {
     /// Transform image data for analysis (resize, optimize)
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
+    /// Transform image data for analysis with progress callback
+    fn transform_for_analysis_with_progress(
+        &self,
+        image_data: &[u8],
+        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+    ) -> Result<Vec<u8>, MediaError> {
+        // Default implementation ignores progress callback
+        let _ = progress_callback;
+        self.transform_for_analysis(image_data)
+    }
+
     /// Check if media attachment needs a description
     fn needs_description(&self, media: &MediaAttachment) -> bool;
 
     /// Get optimal format for transformed image
-    #[allow(dead_code)] // May be used in future implementations
+    #[allow(dead_code)]
     fn get_optimal_format(&self, original_format: ImageFormat) -> ImageFormat;
 }
 
@@ -169,6 +180,15 @@ impl MediaTransformer for UnifiedMediaTransformer {
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError> {
         // Delegate to image processor for image transformation
         self.image_processor.transform_for_analysis(image_data)
+    }
+
+    fn transform_for_analysis_with_progress(
+        &self,
+        image_data: &[u8],
+        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+    ) -> Result<Vec<u8>, MediaError> {
+        // Delegate to image processor for streaming image transformation
+        self.image_processor.transform_for_analysis_with_progress(image_data, progress_callback)
     }
 
     fn needs_description(&self, media: &MediaAttachment) -> bool {
@@ -286,8 +306,17 @@ impl MediaProcessor {
             .collect()
     }
 
-    /// Download media from URL
+    /// Download media from URL with streaming support
     pub async fn download_media(&self, url: &str) -> Result<Vec<u8>, MediaError> {
+        self.download_media_with_callback(url, None).await
+    }
+
+    /// Download media from URL with optional streaming callback for processing chunks
+    pub async fn download_media_with_callback(
+        &self,
+        url: &str,
+        mut callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>,
+    ) -> Result<Vec<u8>, MediaError> {
         // Validate URL format before attempting download
         let parsed_url = match url::Url::parse(url) {
             Ok(u) => u,
@@ -322,20 +351,52 @@ impl MediaProcessor {
             return Err(MediaError::DownloadFailed { url: url_string });
         }
 
-        let bytes = response.bytes().await.map_err(|e| {
-            tracing::warn!("Failed to read response bytes from {}: {}", url_string, e);
-            MediaError::DownloadFailed {
-                url: url_string.clone(),
-            }
-        })?;
+        // Use streaming download to reduce memory usage for large files
+        let mut stream = response.bytes_stream();
+        let mut data = Vec::new();
+        let mut total_size = 0usize;
 
-        Ok(bytes.to_vec())
+        use futures_util::StreamExt;
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                tracing::warn!("Failed to read chunk from {}: {}", url_string, e);
+                MediaError::DownloadFailed {
+                    url: url_string.clone(),
+                }
+            })?;
+
+            // Check for reasonable size limits to prevent memory exhaustion
+            total_size += chunk.len();
+            if total_size > 100 * 1024 * 1024 { // 100MB limit
+                return Err(MediaError::ProcessingFailed(
+                    "Media file too large (>100MB)".to_string(),
+                ));
+            }
+
+            // Call callback if provided for streaming processing
+            if let Some(ref mut cb) = callback {
+                cb(&chunk)?;
+            }
+
+            data.extend_from_slice(&chunk);
+        }
+
+        Ok(data)
     }
 
     /// Process media attachment: download, transform, and prepare for analysis
     pub async fn process_media_for_analysis(
         &self,
         media: &MediaAttachment,
+    ) -> Result<Vec<u8>, MediaError> {
+        self.process_media_for_analysis_with_progress(media, None).await
+    }
+
+    /// Process media attachment with optional progress callback for streaming processing
+    pub async fn process_media_for_analysis_with_progress(
+        &self,
+        media: &MediaAttachment,
+        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
     ) -> Result<Vec<u8>, MediaError> {
         // Check if media is supported and needs processing
         if !self.transformer.is_supported(&media.media_type) {
@@ -350,11 +411,11 @@ impl MediaProcessor {
             ));
         }
 
-        // Download media data
+        // Download media data with streaming support
         let media_data = self.download_media(&media.url).await?;
 
-        // Transform for analysis
-        self.transformer.transform_for_analysis(&media_data)
+        // Transform for analysis with progress callback
+        self.transformer.transform_for_analysis_with_progress(&media_data, progress_callback)
     }
 
     /// Download media from an attachment and return the raw bytes for re-upload

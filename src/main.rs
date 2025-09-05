@@ -218,16 +218,19 @@ async fn main() -> Result<(), AlternatorError> {
     }
 }
 
-/// Main application orchestration - coordinates all components
-async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
+/// Initialize all application components with proper configuration
+async fn initialize_components(
+    config: &RuntimeConfig,
+) -> Result<(ApplicationComponents, crate::balance::BalanceMonitor), AlternatorError> {
     info!("Initializing application components");
 
-    // Initialize all components
+    // Initialize core clients
     let mut mastodon_client =
         crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
     let openrouter_client =
         crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone());
-    // Create shared components
+
+    // Create media processor with configuration
     let media_processor =
         crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
             max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
@@ -240,8 +243,10 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
                 .map(|formats| formats.iter().cloned().collect())
                 .unwrap_or_else(|| crate::media::MediaConfig::default().supported_formats),
         });
+
+    // Initialize supporting components
     let language_detector = crate::language::LanguageDetector::new();
-    let mut balance_monitor = crate::balance::BalanceMonitor::new(
+    let balance_monitor = crate::balance::BalanceMonitor::new(
         config.config().balance().clone(),
         crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone()),
     );
@@ -253,14 +258,11 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     // Check and download Whisper model if needed
     if config.is_audio_enabled() {
         info!("Checking Whisper model availability");
-        check_whisper_model(&config).await?;
+        check_whisper_model(config).await?;
     }
 
-    // Set up graceful shutdown handling
-    let shutdown_signal = setup_shutdown_signal();
-
-    // Create toot handler for backfill processing
-    let mut toot_handler = TootStreamHandler::new(
+    // Create toot handler for processing
+    let toot_handler = TootStreamHandler::new(
         mastodon_client.clone(),
         crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone()),
         media_processor,
@@ -268,19 +270,34 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
         config.clone(),
     );
 
-    // Process backfill if enabled
-    if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &toot_handler).await
-    {
-        warn!("Backfill processing failed: {}", e);
-        // Don't fail startup if backfill fails - just log and continue
-    }
+    let components = ApplicationComponents {
+        mastodon_client,
+        openrouter_client,
+        toot_handler,
+    };
 
+    Ok((components, balance_monitor))
+}
+
+/// Container for all initialized application components
+struct ApplicationComponents {
+    mastodon_client: crate::mastodon::MastodonClient,
+    #[allow(dead_code)]
+    openrouter_client: crate::openrouter::OpenRouterClient,
+    toot_handler: TootStreamHandler,
+}
+
+/// Set up background tasks that run concurrently with main processing
+fn setup_background_tasks(
+    config: &RuntimeConfig,
+    mut balance_monitor: crate::balance::BalanceMonitor,
+) -> Option<tokio::task::JoinHandle<()>> {
     // Start balance monitoring in background if enabled
-    let balance_task = if balance_monitor.is_enabled() {
+    if balance_monitor.is_enabled() {
         info!("Starting balance monitoring service");
         let balance_mastodon_client =
             crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
+
         Some(tokio::spawn(async move {
             if let Err(e) = balance_monitor.run(&balance_mastodon_client).await {
                 error!("Balance monitoring failed: {}", e);
@@ -289,20 +306,34 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
     } else {
         info!("Balance monitoring is disabled");
         None
-    };
+    }
+}
 
-    // Start main toot processing loop
-    info!("Starting main toot processing loop");
-
-    // Process backfill if enabled
-    if let Err(e) =
-        BackfillProcessor::process_backfill(config.config(), &mastodon_client, &toot_handler).await
+/// Run the main processing loop with graceful shutdown handling
+async fn run_main_loop(
+    config: &RuntimeConfig,
+    mut components: ApplicationComponents,
+    balance_task: Option<tokio::task::JoinHandle<()>>,
+) -> Result<(), AlternatorError> {
+    // Process backfill if enabled (only once, not duplicated)
+    if let Err(e) = BackfillProcessor::process_backfill(
+        config.config(),
+        &components.mastodon_client,
+        &components.toot_handler,
+    )
+    .await
     {
         warn!("Backfill processing failed: {}", e);
         // Don't fail startup if backfill fails - just log and continue
     }
 
-    let processing_task = tokio::spawn(async move { toot_handler.start_processing().await });
+    // Set up graceful shutdown handling
+    let shutdown_signal = setup_shutdown_signal();
+
+    // Start main toot processing loop
+    info!("Starting main toot processing loop");
+    let processing_task =
+        tokio::spawn(async move { components.toot_handler.start_processing().await });
 
     // Wait for shutdown signal or task completion
     tokio::select! {
@@ -335,6 +366,18 @@ async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
 
     info!("Application shutdown complete");
     Ok(())
+}
+
+/// Main application orchestration - coordinates all components
+async fn run_application(config: RuntimeConfig) -> Result<(), AlternatorError> {
+    // Initialize all components
+    let (components, balance_monitor) = initialize_components(&config).await?;
+
+    // Set up background tasks
+    let balance_task = setup_background_tasks(&config, balance_monitor);
+
+    // Run main processing loop
+    run_main_loop(&config, components, balance_task).await
 }
 
 /// Check Whisper model availability and preload if configured

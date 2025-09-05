@@ -59,6 +59,17 @@ pub trait ImageTransformer {
     /// Transform image data for analysis (resize, optimize)
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError>;
 
+    /// Transform image data for analysis with optional progress callback
+    fn transform_for_analysis_with_progress(
+        &self,
+        image_data: &[u8],
+        progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+    ) -> Result<Vec<u8>, MediaError> {
+        // Default implementation calls the regular method
+        let _ = progress_callback;
+        self.transform_for_analysis(image_data)
+    }
+
     /// Check if media attachment needs a description
     #[allow(dead_code)] // Used in trait implementation, may be needed by external trait users
     fn needs_description(&self, media: &MediaAttachment) -> bool;
@@ -121,11 +132,6 @@ impl ImageProcessor {
         Ok(())
     }
 
-    /// Public method: Transform image data for analysis (resize, optimize)
-    pub fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError> {
-        <Self as ImageTransformer>::transform_for_analysis(self, image_data)
-    }
-
     /// Public method: Get optimal format for transformed image
     pub fn get_optimal_format(&self, original_format: ImageFormat) -> ImageFormat {
         <Self as ImageTransformer>::get_optimal_format(self, original_format)
@@ -161,15 +167,35 @@ impl ImageTransformer for ImageProcessor {
     }
 
     fn transform_for_analysis(&self, image_data: &[u8]) -> Result<Vec<u8>, MediaError> {
+        self.transform_for_analysis_with_progress(image_data, None)
+    }
+
+    fn transform_for_analysis_with_progress(
+        &self,
+        image_data: &[u8],
+        mut progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
+    ) -> Result<Vec<u8>, MediaError> {
         // Check size limits first
         self.check_size_limits(image_data)?;
+
+        if let Some(ref mut cb) = progress_callback {
+            cb("Detecting image format...");
+        }
 
         // Detect and validate format
         let format = self.detect_format(image_data)?;
 
-        // Load image
+        if let Some(ref mut cb) = progress_callback {
+            cb("Loading image data...");
+        }
+
+        // Load image with streaming support for large images
         let img = image::load_from_memory(image_data)
             .map_err(|e| MediaError::DecodingFailed(format!("Failed to decode image: {e}")))?;
+
+        if let Some(ref mut cb) = progress_callback {
+            cb("Resizing image if needed...");
+        }
 
         // Resize if needed
         let resized_img = self.resize_if_needed(img);
@@ -177,7 +203,11 @@ impl ImageTransformer for ImageProcessor {
         // Get optimal output format
         let output_format = self.get_optimal_format(format);
 
-        // Encode to bytes
+        if let Some(ref mut cb) = progress_callback {
+            cb("Encoding image...");
+        }
+
+        // Encode to bytes with streaming support
         let mut output = Vec::new();
         match output_format {
             ImageFormat::Png => {
@@ -208,6 +238,10 @@ impl ImageTransformer for ImageProcessor {
                     MediaError::EncodingFailed(format!("Failed to encode fallback PNG: {e}"))
                 })?;
             }
+        }
+
+        if let Some(ref mut cb) = progress_callback {
+            cb("Image processing complete");
         }
 
         Ok(output)

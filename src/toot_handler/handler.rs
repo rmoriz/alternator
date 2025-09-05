@@ -6,7 +6,8 @@ use crate::media::MediaProcessor;
 use crate::openrouter::OpenRouterClient;
 use crate::toot_handler::processor;
 use crate::toot_handler::stats::ProcessingStats;
-use std::collections::HashSet;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 use tracing::{debug, error, info, warn};
 
 /// Handler for processing incoming toot events from WebSocket stream
@@ -15,8 +16,8 @@ pub struct TootStreamHandler {
     openrouter_client: OpenRouterClient,
     media_processor: MediaProcessor,
     language_detector: LanguageDetector,
-    processed_toots: HashSet<String>,
-    processed_edits: HashSet<String>,
+    processed_toots: LruCache<String, ()>,
+    processed_edits: LruCache<String, ()>,
     config: RuntimeConfig,
 }
 
@@ -29,13 +30,16 @@ impl TootStreamHandler {
         language_detector: LanguageDetector,
         config: RuntimeConfig,
     ) -> Self {
+        // Use LRU cache with capacity of 5000 entries to prevent memory leaks
+        let capacity = NonZeroUsize::new(5000).unwrap();
+
         Self {
             mastodon_client,
             openrouter_client,
             media_processor,
             language_detector,
-            processed_toots: HashSet::new(),
-            processed_edits: HashSet::new(),
+            processed_toots: LruCache::new(capacity),
+            processed_edits: LruCache::new(capacity),
             config,
         }
     }
@@ -148,7 +152,7 @@ impl TootStreamHandler {
                     }
                 } else {
                     // Handle new toot events with existing logic
-                    if self.is_already_processed(&toot.id) {
+                    if self.is_already_processed(toot.id.as_str()) {
                         debug!("Skipping already processed toot: {}", toot.id);
                         return Ok(());
                     }
@@ -217,55 +221,27 @@ impl TootStreamHandler {
     }
 
     /// Check if a toot has already been processed
-    fn is_already_processed(&self, toot_id: &str) -> bool {
-        self.processed_toots.contains(toot_id)
+    fn is_already_processed(&mut self, toot_id: &str) -> bool {
+        self.processed_toots.get(toot_id).is_some()
     }
 
     /// Mark a toot as processed to prevent duplicate processing
     fn mark_as_processed(&mut self, toot_id: String) {
-        self.processed_toots.insert(toot_id);
-
-        // Prevent memory growth by limiting the size of processed toots set
-        if self.processed_toots.len() > 10000 {
-            // Remove oldest entries (this is a simple approach, could be improved with LRU)
-            let excess = self.processed_toots.len() - 5000;
-            let to_remove: Vec<String> =
-                self.processed_toots.iter().take(excess).cloned().collect();
-            for id in to_remove {
-                self.processed_toots.remove(&id);
-            }
-            debug!(
-                "Cleaned up processed toots cache, now contains {} entries",
-                self.processed_toots.len()
-            );
-        }
+        // LRU cache automatically manages size and evicts least recently used entries
+        self.processed_toots.put(toot_id, ());
     }
 
     /// Check if an edit has already been processed
-    fn is_edit_already_processed(&self, toot: &TootEvent) -> bool {
+    fn is_edit_already_processed(&mut self, toot: &TootEvent) -> bool {
         let edit_key = self.generate_edit_key(toot);
-        self.processed_edits.contains(&edit_key)
+        self.processed_edits.get(&edit_key).is_some()
     }
 
     /// Mark an edit as processed to prevent duplicate processing
     fn mark_edit_as_processed(&mut self, toot: &TootEvent) {
         let edit_key = self.generate_edit_key(toot);
-        self.processed_edits.insert(edit_key);
-
-        // Prevent memory growth by limiting the size of processed edits set
-        if self.processed_edits.len() > 10000 {
-            // Remove oldest entries (this is a simple approach, could be improved with LRU)
-            let excess = self.processed_edits.len() - 5000;
-            let to_remove: Vec<String> =
-                self.processed_edits.iter().take(excess).cloned().collect();
-            for id in to_remove {
-                self.processed_edits.remove(&id);
-            }
-            debug!(
-                "Cleaned up processed edits cache, now contains {} entries",
-                self.processed_edits.len()
-            );
-        }
+        // LRU cache automatically manages size and evicts least recently used entries
+        self.processed_edits.put(edit_key, ());
     }
 
     /// Generate a unique key for an edit based on toot ID and media attachment IDs
