@@ -109,12 +109,44 @@ impl WhisperCli {
 
         info!("Preloading Whisper model '{}' on startup...", self.model);
 
+        // Verify model directory exists and is writable if specified
+        if let Some(ref model_dir) = self.model_dir {
+            if !model_dir.exists() {
+                warn!("Model directory does not exist: {}", model_dir.display());
+                // Try to create it
+                if let Err(e) = std::fs::create_dir_all(model_dir) {
+                    warn!("Failed to create model directory {}: {}", model_dir.display(), e);
+                } else {
+                    info!("Created model directory: {}", model_dir.display());
+                }
+            } else if !model_dir.is_dir() {
+                return Err(MediaError::ProcessingFailed(format!(
+                    "Model path exists but is not a directory: {}",
+                    model_dir.display()
+                )));
+            } else {
+                // Check if directory is writable
+                match std::fs::metadata(model_dir) {
+                    Ok(metadata) => {
+                        if metadata.permissions().readonly() {
+                            warn!("Model directory is read-only: {}", model_dir.display());
+                        } else {
+                            info!("Model directory is writable: {}", model_dir.display());
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to check model directory permissions: {}", e);
+                    }
+                }
+            }
+        }
+
         let python_executable = self.python_executable.clone();
         let model = self.model.clone();
         let device = self.device.clone();
         let model_dir = self.model_dir.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<(), MediaError> {
+        let preload_result = tokio::task::spawn_blocking(move || -> Result<(), MediaError> {
             let mut cmd = Command::new(&python_executable);
             cmd.arg("-c").arg(format!(
                 r#"
@@ -190,10 +222,20 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
         .await
         .map_err(|e| {
             MediaError::ProcessingFailed(format!("Model preloading task failed: {}", e))
-        })??;
+        });
 
-        self.model_preloaded.store(true, Ordering::Relaxed);
-        info!("✓ Whisper model '{}' preloaded successfully", self.model);
+        match preload_result {
+            Ok(_) => {
+                self.model_preloaded.store(true, Ordering::Relaxed);
+                info!("✓ Whisper model '{}' preloaded successfully", self.model);
+            }
+            Err(e) => {
+                // Even if preloading fails, mark as attempted to avoid repeated attempts
+                self.model_preloaded.store(true, Ordering::Relaxed);
+                warn!("⚠ Whisper model preloading failed, will load on-demand: {}", e);
+                // Don't return error - allow application to continue without preloaded model
+            }
+        }
 
         Ok(())
     }
@@ -204,10 +246,13 @@ print(f"✓ Model '{model}' preloaded successfully on {{model.device}}")
         audio_path: &Path,
         language: Option<&str>,
     ) -> Result<String, MediaError> {
-        // Ensure model is preloaded (should already be done at startup)
+        // Check if model was preloaded successfully at startup
         if !self.model_preloaded.load(Ordering::Relaxed) {
             warn!("Model not preloaded, loading now (this may cause delay)");
-            self.preload_model().await?;
+            // Try to preload now, but don't fail if it doesn't work
+            if let Err(e) = self.preload_model().await {
+                warn!("Failed to preload model on-demand, proceeding with CLI: {}", e);
+            }
         }
 
         info!("Transcribing audio file: {}", audio_path.display());

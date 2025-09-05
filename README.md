@@ -565,6 +565,7 @@ Error: Model preloading failed
 - Verify the model name is valid: `tiny`, `base`, `small`, `medium`, `large`
 - Check disk space in model directory
 - Try disabling preloading: set `preload = false` in config
+- **For Docker users**: Ensure `ALTERNATOR_WHISPER_MODEL_DIR` is set to the container path (e.g., `/whisper` not `/srv/alternator/whisper`)
 
 **Balance Too Low**
 ```
