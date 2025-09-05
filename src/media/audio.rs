@@ -108,7 +108,8 @@ pub async fn process_audio_for_transcript(
 
         // Check for reasonable size limits to prevent memory exhaustion
         total_size += chunk.len();
-        if total_size > 100 * 1024 * 1024 { // 100MB limit for audio
+        if total_size > 100 * 1024 * 1024 {
+            // 100MB limit for audio
             return Err(MediaError::ProcessingFailed(
                 "Audio file too large (>100MB)".to_string(),
             ));

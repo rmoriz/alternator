@@ -188,7 +188,8 @@ impl MediaTransformer for UnifiedMediaTransformer {
         progress_callback: Option<Box<dyn FnMut(&str) + Send + Sync>>,
     ) -> Result<Vec<u8>, MediaError> {
         // Delegate to image processor for streaming image transformation
-        self.image_processor.transform_for_analysis_with_progress(image_data, progress_callback)
+        self.image_processor
+            .transform_for_analysis_with_progress(image_data, progress_callback)
     }
 
     fn needs_description(&self, media: &MediaAttachment) -> bool {
@@ -367,7 +368,8 @@ impl MediaProcessor {
 
             // Check for reasonable size limits to prevent memory exhaustion
             total_size += chunk.len();
-            if total_size > 100 * 1024 * 1024 { // 100MB limit
+            if total_size > 100 * 1024 * 1024 {
+                // 100MB limit
                 return Err(MediaError::ProcessingFailed(
                     "Media file too large (>100MB)".to_string(),
                 ));
@@ -389,7 +391,8 @@ impl MediaProcessor {
         &self,
         media: &MediaAttachment,
     ) -> Result<Vec<u8>, MediaError> {
-        self.process_media_for_analysis_with_progress(media, None).await
+        self.process_media_for_analysis_with_progress(media, None)
+            .await
     }
 
     /// Process media attachment with optional progress callback for streaming processing
@@ -415,7 +418,8 @@ impl MediaProcessor {
         let media_data = self.download_media(&media.url).await?;
 
         // Transform for analysis with progress callback
-        self.transformer.transform_for_analysis_with_progress(&media_data, progress_callback)
+        self.transformer
+            .transform_for_analysis_with_progress(&media_data, progress_callback)
     }
 
     /// Download media from an attachment and return the raw bytes for re-upload
