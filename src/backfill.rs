@@ -1,7 +1,10 @@
-use crate::config::Config;
+use crate::config::RuntimeConfig;
 use crate::error::AlternatorError;
+use crate::language::LanguageDetector;
 use crate::mastodon::{MastodonClient, MastodonStream, TootEvent};
-use crate::toot_handler::TootStreamHandler;
+use crate::media::MediaProcessor;
+use crate::openrouter::OpenRouterClient;
+use crate::toot_handler::processor;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -11,12 +14,14 @@ pub struct BackfillProcessor;
 impl BackfillProcessor {
     /// Process recent toots for backfill if enabled in configuration
     pub async fn process_backfill(
-        config: &Config,
+        config: &RuntimeConfig,
         mastodon_client: &MastodonClient,
-        _handler: &TootStreamHandler,
+        openrouter_client: &OpenRouterClient,
+        media_processor: &MediaProcessor,
+        language_detector: &LanguageDetector,
     ) -> Result<(), AlternatorError> {
-        let backfill_count = config.mastodon.backfill_count.unwrap_or(25);
-        let backfill_pause = config.mastodon.backfill_pause.unwrap_or(60);
+        let backfill_count = config.config().mastodon.backfill_count.unwrap_or(25);
+        let backfill_pause = config.config().mastodon.backfill_pause.unwrap_or(60);
 
         // Check if backfill is disabled
         if backfill_count == 0 {
@@ -56,7 +61,16 @@ impl BackfillProcessor {
             );
 
             // Process the toot
-            if let Err(e) = Self::process_backfill_toot(toot, _handler).await {
+            if let Err(e) = Self::process_backfill_toot(
+                toot,
+                mastodon_client,
+                openrouter_client,
+                media_processor,
+                language_detector,
+                config,
+            )
+            .await
+            {
                 warn!("Failed to process backfill toot {}: {}", toot.id, e);
                 // Continue with next toot instead of failing completely
             }
@@ -78,7 +92,11 @@ impl BackfillProcessor {
     /// Process a single toot during backfill
     async fn process_backfill_toot(
         toot: &TootEvent,
-        _handler: &TootStreamHandler,
+        mastodon_client: &MastodonClient,
+        openrouter_client: &OpenRouterClient,
+        media_processor: &MediaProcessor,
+        language_detector: &LanguageDetector,
+        config: &RuntimeConfig,
     ) -> Result<(), AlternatorError> {
         // Check if toot has media attachments that need processing
         if toot.media_attachments.is_empty() {
@@ -105,15 +123,18 @@ impl BackfillProcessor {
             toot.media_attachments.len()
         );
 
-        // Process the toot using the existing handler
-        // Clone the toot to make it mutable for processing
-        let _toot_clone = toot.clone();
+        // Process the toot using the existing processing logic
+        processor::process_toot(
+            toot,
+            mastodon_client,
+            openrouter_client,
+            media_processor,
+            language_detector,
+            config,
+        )
+        .await?;
 
-        // For now, we'll skip the actual processing in backfill to avoid method resolution issues
-        // The backfill feature structure is in place and can be completed when the handler API is finalized
-        info!("Backfill toot processing placeholder for toot {}", toot.id);
-        // Placeholder implementation completed successfully
-
+        info!("Successfully processed backfill toot {}", toot.id);
         Ok(())
     }
 }

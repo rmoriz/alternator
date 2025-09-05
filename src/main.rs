@@ -270,10 +270,27 @@ async fn initialize_components(
         config.clone(),
     );
 
+    // Create fresh instances for ApplicationComponents since they were moved to TootStreamHandler
+    let backfill_media_processor =
+        crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
+            max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
+            max_dimension: config.config().media().resize_max_dimension.unwrap_or(2048),
+            supported_formats: config
+                .config()
+                .media()
+                .supported_formats
+                .as_ref()
+                .map(|formats| formats.iter().cloned().collect())
+                .unwrap_or_else(|| crate::media::MediaConfig::default().supported_formats),
+        });
+    let backfill_language_detector = crate::language::LanguageDetector::new();
+
     let components = ApplicationComponents {
         mastodon_client,
         openrouter_client,
         toot_handler,
+        media_processor: backfill_media_processor,
+        language_detector: backfill_language_detector,
     };
 
     Ok((components, balance_monitor))
@@ -281,10 +298,15 @@ async fn initialize_components(
 
 /// Container for all initialized application components
 struct ApplicationComponents {
+    #[allow(dead_code)]
     mastodon_client: crate::mastodon::MastodonClient,
     #[allow(dead_code)]
     openrouter_client: crate::openrouter::OpenRouterClient,
     toot_handler: TootStreamHandler,
+    #[allow(dead_code)]
+    media_processor: crate::media::MediaProcessor,
+    #[allow(dead_code)]
+    language_detector: crate::language::LanguageDetector,
 }
 
 /// Set up background tasks that run concurrently with main processing
@@ -315,16 +337,44 @@ async fn run_main_loop(
     mut components: ApplicationComponents,
     balance_task: Option<tokio::task::JoinHandle<()>>,
 ) -> Result<(), AlternatorError> {
-    // Process backfill if enabled (only once, not duplicated)
-    if let Err(e) = BackfillProcessor::process_backfill(
-        config.config(),
-        &components.mastodon_client,
-        &components.toot_handler,
-    )
-    .await
-    {
-        warn!("Backfill processing failed: {}", e);
-        // Don't fail startup if backfill fails - just log and continue
+    // Process backfill in background if enabled (non-blocking)
+    let backfill_enabled = config.config().mastodon.backfill_count.unwrap_or(25) > 0;
+    if backfill_enabled {
+        let backfill_config = config.clone();
+        let backfill_mastodon_client =
+            crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
+        let backfill_openrouter_client =
+            crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone());
+        let backfill_media_processor =
+            crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
+                max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
+                max_dimension: config.config().media().resize_max_dimension.unwrap_or(2048),
+                supported_formats: config
+                    .config()
+                    .media()
+                    .supported_formats
+                    .as_ref()
+                    .map(|formats| formats.iter().cloned().collect())
+                    .unwrap_or_else(|| crate::media::MediaConfig::default().supported_formats),
+            });
+        let backfill_language_detector = crate::language::LanguageDetector::new();
+
+        tokio::spawn(async move {
+            info!("Starting backfill processing in background");
+            if let Err(e) = BackfillProcessor::process_backfill(
+                &backfill_config,
+                &backfill_mastodon_client,
+                &backfill_openrouter_client,
+                &backfill_media_processor,
+                &backfill_language_detector,
+            )
+            .await
+            {
+                error!("Backfill processing failed: {}", e);
+            } else {
+                info!("Backfill processing completed successfully");
+            }
+        });
     }
 
     // Set up graceful shutdown handling

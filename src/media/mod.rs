@@ -50,7 +50,9 @@ impl StreamingProcessor {
     /// Create a new streaming processor
     #[allow(clippy::type_complexity)]
     #[allow(dead_code)]
-    pub fn new(callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>) -> Self {
+    pub fn new(
+        callback: Option<Box<dyn FnMut(&[u8]) -> Result<(), MediaError> + Send + Sync>>,
+    ) -> Self {
         Self { callback }
     }
 
