@@ -87,6 +87,14 @@ pub struct ImageProcessor {
     config: ImageConfig,
 }
 
+impl Clone for ImageProcessor {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+        }
+    }
+}
+
 impl ImageProcessor {
     pub fn new(config: ImageConfig) -> Self {
         Self { config }

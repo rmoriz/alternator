@@ -71,6 +71,16 @@ pub struct OpenRouterClient {
     rate_limiter: Arc<tokio::sync::Mutex<RateLimiter>>,
 }
 
+impl Clone for OpenRouterClient {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            http_client: reqwest::Client::new(),
+            rate_limiter: Arc::new(tokio::sync::Mutex::new(RateLimiter::new(5, 200))),
+        }
+    }
+}
+
 impl std::fmt::Debug for OpenRouterClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenRouterClient")

@@ -341,23 +341,10 @@ async fn run_main_loop(
     let backfill_enabled = config.config().mastodon.backfill_count.unwrap_or(25) > 0;
     if backfill_enabled {
         let backfill_config = config.clone();
-        let backfill_mastodon_client =
-            crate::mastodon::MastodonClient::new(config.config().mastodon.clone());
-        let backfill_openrouter_client =
-            crate::openrouter::OpenRouterClient::new(config.config().openrouter.clone());
-        let backfill_media_processor =
-            crate::media::MediaProcessor::with_image_transformer(crate::media::MediaConfig {
-                max_size_mb: config.config().media().max_size_mb.unwrap_or(10) as f64,
-                max_dimension: config.config().media().resize_max_dimension.unwrap_or(2048),
-                supported_formats: config
-                    .config()
-                    .media()
-                    .supported_formats
-                    .as_ref()
-                    .map(|formats| formats.iter().cloned().collect())
-                    .unwrap_or_else(|| crate::media::MediaConfig::default().supported_formats),
-            });
-        let backfill_language_detector = crate::language::LanguageDetector::new();
+        let backfill_mastodon_client = components.mastodon_client.clone();
+        let backfill_openrouter_client = components.openrouter_client.clone();
+        let backfill_media_processor = components.media_processor.clone();
+        let backfill_language_detector = components.language_detector.clone();
 
         tokio::spawn(async move {
             info!("Starting backfill processing in background");

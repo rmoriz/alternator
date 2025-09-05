@@ -11,6 +11,7 @@ pub fn detect_text_language(text: &str) -> String {
 }
 
 /// Language detector with prompt template management
+#[derive(Clone)]
 pub struct LanguageDetector {
     prompt_templates: HashMap<String, String>,
 }

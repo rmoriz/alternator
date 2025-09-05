@@ -125,7 +125,7 @@ impl Default for MediaConfig {
 }
 
 /// Trait for media transformation operations
-pub trait MediaTransformer {
+pub trait MediaTransformer: Send + Sync {
     /// Check if a media type is supported for processing
     fn is_supported(&self, media_type: &str) -> bool;
 
@@ -143,6 +143,9 @@ pub trait MediaTransformer {
         self.transform_for_analysis(image_data)
     }
 
+    /// Clone the transformer as a boxed trait object
+    fn clone_box(&self) -> Box<dyn MediaTransformer + Send + Sync>;
+
     /// Check if media attachment needs a description
     fn needs_description(&self, media: &MediaAttachment) -> bool;
 
@@ -155,6 +158,15 @@ pub trait MediaTransformer {
 pub struct UnifiedMediaTransformer {
     image_processor: image::ImageProcessor,
     config: MediaConfig,
+}
+
+impl Clone for UnifiedMediaTransformer {
+    fn clone(&self) -> Self {
+        Self {
+            image_processor: self.image_processor.clone(),
+            config: self.config.clone(),
+        }
+    }
 }
 
 impl UnifiedMediaTransformer {
@@ -287,12 +299,25 @@ impl MediaTransformer for UnifiedMediaTransformer {
     fn get_optimal_format(&self, original_format: ImageFormat) -> ImageFormat {
         self.image_processor.get_optimal_format(original_format)
     }
+
+    fn clone_box(&self) -> Box<dyn MediaTransformer + Send + Sync> {
+        Box::new(self.clone())
+    }
 }
 
 /// Main media processor that coordinates filtering and transformation
 pub struct MediaProcessor {
     transformer: Box<dyn MediaTransformer + Send + Sync>,
     http_client: reqwest::Client,
+}
+
+impl Clone for MediaProcessor {
+    fn clone(&self) -> Self {
+        Self {
+            transformer: self.transformer.clone_box(),
+            http_client: reqwest::Client::new(),
+        }
+    }
 }
 
 impl MediaProcessor {
