@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Enhanced
+- **Memory Management** - Replaced HashSet with LRU cache for processed toots/edits to prevent memory leaks
+- **Streaming Downloads** - Implemented streaming downloads for large media files with 100MB size limit
+- **Progress Callbacks** - Added progress callbacks for image processing operations
+- **Modular Architecture** - Refactored main application into modular components structure
+- **Media Processing Strategy** - Implemented strategy pattern for audio/video processing
+
+### Technical Improvements
+- Added `lru` crate dependency for efficient caching
+- Enhanced media download methods with streaming support
+- Improved error handling for large file processing
+- Better separation of concerns in application initialization
+
 ## [0.3.0] - 2025-08-26
 
 ### Added
