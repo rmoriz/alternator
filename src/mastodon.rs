@@ -654,7 +654,7 @@ impl MastodonStream for MastodonClient {
                 // Send periodic pings to detect dead connections
                 _ = ping_interval.tick() => {
                     debug!("Sending periodic ping to detect dead connections");
-                    if let Err(e) = websocket.send(Message::Ping(vec![])).await {
+                    if let Err(e) = websocket.send(Message::Ping(vec![].into())).await {
                         warn!("Failed to send periodic ping: {}", e);
                         self.websocket = None;
                         self.reconnect().await?;
@@ -1532,7 +1532,7 @@ mod tests {
             // Send all queued messages
             let messages_to_send = messages.lock().await.clone();
             for message in messages_to_send {
-                if ws_stream.send(Message::Text(message)).await.is_err() {
+                if ws_stream.send(Message::Text(message.into())).await.is_err() {
                     break;
                 }
             }
