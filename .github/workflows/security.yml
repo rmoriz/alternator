@@ -55,6 +55,7 @@ jobs:
 
     - name: Create Pull Request (if changes exist)
       if: steps.changes.outputs.has_changes == 'true'
+      id: create-pr
       uses: peter-evans/create-pull-request@v7
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -76,6 +77,21 @@ jobs:
         add-paths: |
           Cargo.lock
           Cargo.toml
+
+    - name: Trigger PR Test
+      if: steps.create-pr.outputs.pull-request-number
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Add a comment to trigger the test workflow
+          await github.rest.issues.createComment({
+            issue_number: ${{ steps.create-pr.outputs.pull-request-number }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '/test'
+          });
+          
+          console.log('Triggered test for PR #${{ steps.create-pr.outputs.pull-request-number }}');
 
     - name: Fallback - Push branch if PR creation fails
       if: failure() && steps.changes.outputs.has_changes == 'true'

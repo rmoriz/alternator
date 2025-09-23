@@ -1,0 +1,127 @@
+name: Test PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test'
+        required: true
+        type: string
+  issue_comment:
+    types: [created]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Only run on comments that contain '/test' and are on PRs
+  check-comment:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '/test') && github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    outputs:
+      should_test: ${{ steps.check.outputs.should_test }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+    steps:
+    - name: Check if comment triggers test
+      id: check
+      run: |
+        echo "should_test=true" >> $GITHUB_OUTPUT
+        echo "pr_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+  test-pr:
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.check-comment.outputs.should_test == 'true')
+    needs: [check-comment]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust: stable
+            run_checks: true
+          - os: macos-latest  
+            rust: stable
+            run_checks: false
+
+    steps:
+    - name: Set PR number
+      id: pr
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+        else
+          echo "pr_number=${{ needs.check-comment.outputs.pr_number }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        ref: refs/pull/${{ steps.pr.outputs.pr_number }}/head
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Configure Rust cache  
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.os }}-${{ matrix.rust }}
+
+    - name: Run tests
+      run: cargo test --verbose --all-features
+
+    - name: Run security audit (Ubuntu only)
+      if: matrix.run_checks && matrix.os == 'ubuntu-latest'
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+    - name: Run clippy (Ubuntu only)
+      if: matrix.run_checks && matrix.os == 'ubuntu-latest'
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Check formatting (Ubuntu only)
+      if: matrix.run_checks && matrix.os == 'ubuntu-latest'
+      run: cargo fmt --all -- --check
+
+  # Post a comment with test results
+  comment-result:
+    if: always() && (github.event_name == 'issue_comment' || github.event_name == 'workflow_dispatch')
+    needs: [test-pr]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set PR number
+      id: pr
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+        else
+          echo "pr_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Post success comment
+      if: needs.test-pr.result == 'success'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: ${{ steps.pr.outputs.pr_number }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '✅ **Test Results: PASSED**\n\nAll tests, security audit, clippy, and formatting checks passed successfully!'
+          });
+
+    - name: Post failure comment
+      if: needs.test-pr.result == 'failure'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: ${{ steps.pr.outputs.pr_number }},
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '❌ **Test Results: FAILED**\n\nSome tests failed. Please check the workflow logs for details.'
+          });
