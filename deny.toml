@@ -52,17 +52,7 @@ allow = [
     "Zlib",
     "BSL-1.0",  # Boost Software License
 ]
-# List of explicitly disallowed licenses
-# See https://spdx.org/licenses/ for list of possible licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-1.0",
-    "AGPL-3.0",
-    "LGPL-2.0",
-    "LGPL-2.1",
-    "LGPL-3.0",
-]
+# Note: In cargo-deny v2, any license not in the allow list is automatically denied
 # Confidence threshold for detecting a license from a license text.
 # Expressed as a floating point number in the range 0.0 to 1.0
 confidence-threshold = 0.8
