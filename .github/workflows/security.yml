@@ -88,18 +88,7 @@ jobs:
         BRANCH_NAME="automated-dependency-updates-$(date +%Y%m%d-%H%M%S)"
         git checkout -b "$BRANCH_NAME"
         git add Cargo.lock Cargo.toml
-        git commit -m "chore: Update dependencies
-
-Automated dependency updates for security and compatibility.
-
-Changes:
-- Updated Cargo dependencies to latest compatible versions  
-- Security audit passed
-- All tests passing
-
-Note: Please create a PR manually from this branch or enable 
-'Allow GitHub Actions to create and approve pull requests' 
-in repository settings under Actions > General."
+        git commit -m "chore: Update dependencies - automated dependency updates for security and compatibility"
         
         git push origin "$BRANCH_NAME"
         echo "::notice::Branch '$BRANCH_NAME' created with dependency updates. Please create a PR manually."
