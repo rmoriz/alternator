@@ -42,7 +42,19 @@ jobs:
         cargo install cargo-audit
         cargo audit
 
-    - name: Create Pull Request
+    - name: Check for dependency changes
+      id: changes
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          git diff --name-only
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "No dependency updates needed"
+        fi
+
+    - name: Create Pull Request (if changes exist)
+      if: steps.changes.outputs.has_changes == 'true'
       uses: peter-evans/create-pull-request@v7
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -61,8 +73,36 @@ jobs:
           Please review the changes and merge if appropriate.
         branch: automated-dependency-updates
         delete-branch: true
-        author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-        committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        add-paths: |
+          Cargo.lock
+          Cargo.toml
+
+    - name: Fallback - Push branch if PR creation fails
+      if: failure() && steps.changes.outputs.has_changes == 'true'
+      run: |
+        echo "PR creation failed, pushing branch instead..."
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # Create unique branch name
+        BRANCH_NAME="automated-dependency-updates-$(date +%Y%m%d-%H%M%S)"
+        git checkout -b "$BRANCH_NAME"
+        git add Cargo.lock Cargo.toml
+        git commit -m "chore: Update dependencies
+
+Automated dependency updates for security and compatibility.
+
+Changes:
+- Updated Cargo dependencies to latest compatible versions  
+- Security audit passed
+- All tests passing
+
+Note: Please create a PR manually from this branch or enable 
+'Allow GitHub Actions to create and approve pull requests' 
+in repository settings under Actions > General."
+        
+        git push origin "$BRANCH_NAME"
+        echo "::notice::Branch '$BRANCH_NAME' created with dependency updates. Please create a PR manually."
 
   security-scan:
     name: Security Scan
