@@ -96,6 +96,22 @@ sudo apt install ffmpeg
 # Download from https://ffmpeg.org/download.html
 ```
 
+#### 4. Install Deno (Required for upcoming yt-dlp changes)
+
+Starting soon, yt-dlp will require the Deno JavaScript runtime to handle YouTube downloads. Install it now to prepare:
+
+```bash
+# Install using the official installer (all platforms)
+curl -fsSL https://deno.land/install.sh | sh
+
+# macOS with Homebrew
+brew install deno
+
+# Add to PATH (if using curl installer)
+echo 'export PATH="$HOME/.deno/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
 #### 4. Run
 
 ```bash

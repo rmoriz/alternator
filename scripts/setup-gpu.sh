@@ -73,6 +73,17 @@ else:
     print('Using CPU backend')
 "
     
+    # Verify Deno installation
+    echo "🔧 Verifying Deno installation..."
+    if command -v deno &> /dev/null; then
+        echo "✅ Deno $(deno --version | head -n1 | cut -d' ' -f2) is available"
+    else
+        echo "⚠️  Deno not found - installing..."
+        curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+        chmod +x /usr/local/bin/deno
+        echo "✅ Deno installed successfully"
+    fi
+    
     echo "✅ GPU setup completed successfully!"
 }
 

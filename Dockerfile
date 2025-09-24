@@ -30,7 +30,12 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     ffmpeg \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno JavaScript runtime (required for upcoming yt-dlp changes)
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
+    && chmod +x /usr/local/bin/deno
 
 # Install OpenAI Whisper
 RUN pip3 install --no-cache-dir openai-whisper
