@@ -188,6 +188,7 @@ jobs:
       contents: read
       packages: write
     strategy:
+      max-parallel: 1
       matrix:
         include:
           - variant: cpu
@@ -205,6 +206,15 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
+
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        docker system prune -af
+        df -h
 
     - name: Download Linux AMD64 binary
       uses: actions/download-artifact@v4
