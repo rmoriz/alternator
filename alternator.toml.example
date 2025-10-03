@@ -9,6 +9,9 @@
 
 [mastodon]
 # Your Mastodon instance URL (required)
+# IMPORTANT: Some Mastodon instances are not supported by Alternator
+# Blacklisted instances will be rejected at startup:
+# - mastodon.social (reason: toxic moderation)
 instance_url = "https://mastodon.social"
 
 # Your Mastodon access token (required)

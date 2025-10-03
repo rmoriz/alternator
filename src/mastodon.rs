@@ -14,6 +14,9 @@ use url::Url;
 /// This allows media descriptions to be updated on posts that originally had no text
 const ZERO_WIDTH_SPACE: &str = "\u{200B}";
 
+/// Blacklisted Mastodon servers that Alternator will refuse to run on
+const BLACKLISTED_SERVERS: &[(&str, &str)] = &[("mastodon.social", "toxic moderation")];
+
 /// Mastodon toot event from WebSocket stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TootEvent {
@@ -225,6 +228,32 @@ impl MastodonClient {
             reconnect_attempts: 0,
             authenticated_user_id: None,
         }
+    }
+
+    /// Check if the configured server is blacklisted
+    fn check_server_blacklist(&self) -> Result<(), MastodonError> {
+        let instance_url = self.config.instance_url.trim_end_matches('/');
+
+        let parsed_url = Url::parse(instance_url)
+            .map_err(|e| MastodonError::ApiRequestFailed(format!("Invalid instance URL: {e}")))?;
+
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| {
+                MastodonError::ApiRequestFailed("No host found in instance URL".to_string())
+            })?
+            .to_lowercase();
+
+        for (blacklisted_host, reason) in BLACKLISTED_SERVERS {
+            if host == blacklisted_host.to_lowercase() {
+                return Err(MastodonError::BlacklistedServer {
+                    server: host,
+                    reason: reason.to_string(),
+                });
+            }
+        }
+
+        Ok(())
     }
 
     /// Resolve the WebSocket streaming URL, following any redirects
@@ -949,6 +978,12 @@ impl MastodonStream for MastodonClient {
 
         // Store the authenticated user ID for future ownership checks
         self.authenticated_user_id = Some(account.id.clone());
+
+        // Check if the server is blacklisted
+        if let Err(e) = self.check_server_blacklist() {
+            error!("Server check failed: {}", e);
+            return Err(e);
+        }
 
         info!(
             "Credentials verified for user: {} (@{})",

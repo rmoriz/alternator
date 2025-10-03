@@ -91,6 +91,9 @@ pub enum MastodonError {
 
     #[error("Race condition detected: toot was modified")]
     RaceConditionDetected,
+
+    #[error("Blacklisted server: {server} - {reason}")]
+    BlacklistedServer { server: String, reason: String },
 }
 
 #[allow(dead_code)] // Comprehensive error enum with some unused variants for completeness
@@ -209,6 +212,7 @@ impl ErrorRecovery {
                 MastodonError::ApiRequestFailed(_) => true,
                 MastodonError::AuthenticationFailed(_) => false, // Not recoverable
                 MastodonError::UserVerificationFailed => false,  // Not recoverable
+                MastodonError::BlacklistedServer { .. } => false, // Not recoverable
                 _ => false,
             },
 
@@ -314,6 +318,7 @@ impl ErrorRecovery {
             AlternatorError::Config(_) => true, // Configuration errors are fatal
             AlternatorError::Shutdown => true,  // Intentional shutdown
             AlternatorError::Mastodon(MastodonError::AuthenticationFailed(_)) => true,
+            AlternatorError::Mastodon(MastodonError::BlacklistedServer { .. }) => true,
             AlternatorError::OpenRouter(OpenRouterError::AuthenticationFailed) => true,
             _ => false,
         }
